@@ -629,7 +629,8 @@ static HRESULT create_swapchain_1_2(ID3D11Device *dev, IDXGIFactory2 *factory,
         .BufferUsage = opts->usage,
     };
 
-    if (flip) {
+    bool is_headless = (opts->window == NULL); // true if is headless, thus hwnd is NULL
+    if (flip || is_headless) {
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.BufferCount = opts->length;
     } else {
@@ -637,8 +638,14 @@ static HRESULT create_swapchain_1_2(ID3D11Device *dev, IDXGIFactory2 *factory,
         desc.BufferCount = 1;
     }
 
-    hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown*)dev,
-        opts->window, &desc, NULL, NULL, &swapchain1);
+    if (is_headless) {
+        hr = IDXGIFactory2_CreateSwapChainForComposition(factory, 
+            (IUnknown*)dev, &desc, NULL, &swapchain1);
+    }
+    else {
+        hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown*)dev,
+            opts->window, &desc, NULL, NULL, &swapchain1);
+    }
     if (FAILED(hr))
         goto done;
     hr = IDXGISwapChain1_QueryInterface(swapchain1, &IID_IDXGISwapChain,
@@ -905,9 +912,11 @@ bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,
     // Prevent DXGI from making changes to the VO window, otherwise it will
     // hook the Alt+Enter keystroke and make it trigger an ugly transition to
     // exclusive fullscreen mode instead of running the user-set command.
-    IDXGIFactory_MakeWindowAssociation(factory, opts->window,
-        DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER |
-        DXGI_MWA_NO_PRINT_SCREEN);
+    if (opts->window != NULL) {
+        IDXGIFactory_MakeWindowAssociation(factory, opts->window,
+            DXGI_MWA_NO_WINDOW_CHANGES | DXGI_MWA_NO_ALT_ENTER |
+            DXGI_MWA_NO_PRINT_SCREEN);
+    }
 
     if (factory2) {
         mp_verbose(log, "Using DXGI 1.2+\n");

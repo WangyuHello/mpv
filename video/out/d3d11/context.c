@@ -100,6 +100,8 @@ struct priv {
     int64_t last_sync_qpc_time;
     int64_t vsync_duration_qpc;
     int64_t last_submit_qpc;
+
+    bool is_headless; // true if use headless mode
 };
 
 static int d3d11_validate_adapter(struct mp_log *log,
@@ -321,6 +323,7 @@ static void d3d11_get_vsync(struct ra_swapchain *sw, struct vo_vsync_info *info)
 
 static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg)
 {
+    // TODO: ignore if headless
     int ret = vo_w32_control(ctx->vo, events, request, arg);
     if (*events & VO_EVENT_RESIZE) {
         if (!resize(ctx))
@@ -355,7 +358,12 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
-    struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
+    if (ctx->priv == NULL) {
+        // not headless mode
+        ctx->priv = talloc_zero(ctx, struct priv);
+        ((struct priv*)(ctx->priv))->is_headless = false;
+    }
+    struct priv* p = ctx->priv;
     p->opts = mp_get_config_group(ctx, ctx->global, &d3d11_conf);
 
     LARGE_INTEGER perf_freq;
@@ -384,11 +392,11 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!ctx->ra)
         goto error;
 
-    if (!vo_w32_init(ctx->vo))
+    if (!p->is_headless && !vo_w32_init(ctx->vo))
         goto error;
 
     struct d3d11_swapchain_opts scopts = {
-        .window = vo_w32_hwnd(ctx->vo),
+        .window = p->is_headless ? NULL : vo_w32_hwnd(ctx->vo),
         .width = ctx->vo->dwidth,
         .height = ctx->vo->dheight,
         .format = p->opts->output_format,
@@ -414,6 +422,12 @@ error:
     return false;
 }
 
+static bool d3d11_headless_init(struct ra_ctx* ctx) {
+    struct priv* p = ctx->priv = talloc_zero(ctx, struct priv);
+    p->is_headless = true;
+    d3d11_init(ctx);
+}
+
 const struct ra_ctx_fns ra_ctx_d3d11 = {
     .type     = "d3d11",
     .name     = "d3d11",
@@ -421,4 +435,13 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
     .control  = d3d11_control,
     .init     = d3d11_init,
     .uninit   = d3d11_uninit,
+};
+
+const struct ra_ctx_fns ra_ctx_d3d11_headless = {
+    .type = "d3d11_headless",
+    .name = "d3d11_headless",
+    .reconfig = d3d11_reconfig,
+    .control = d3d11_control,
+    .init = d3d11_init,
+    .uninit = d3d11_uninit,
 };
