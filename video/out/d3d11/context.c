@@ -324,7 +324,14 @@ static void d3d11_get_vsync(struct ra_swapchain *sw, struct vo_vsync_info *info)
 static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg)
 {
     // TODO: ignore if headless
-    int ret = vo_w32_control(ctx->vo, events, request, arg);
+    struct priv* p = ctx->priv;
+    int ret;
+    if (p->is_headless) {
+
+    }
+    else {
+        ret = vo_w32_control(ctx->vo, events, request, arg);
+    }
     if (*events & VO_EVENT_RESIZE) {
         if (!resize(ctx))
             return VO_ERROR;
@@ -339,7 +346,9 @@ static void d3d11_uninit(struct ra_ctx *ctx)
     if (ctx->ra)
         ra_tex_free(ctx->ra, &p->backbuffer);
     SAFE_RELEASE(p->swapchain);
-    vo_w32_uninit(ctx->vo);
+    if (!p->is_headless) {
+        vo_w32_uninit(ctx->vo);
+    }
     SAFE_RELEASE(p->device);
 
     // Destory the RA last to prevent objects we hold from showing up in D3D's
@@ -442,6 +451,6 @@ const struct ra_ctx_fns ra_ctx_d3d11_headless = {
     .name = "d3d11_headless",
     .reconfig = d3d11_reconfig,
     .control = d3d11_control,
-    .init = d3d11_init,
+    .init = d3d11_headless_init,
     .uninit = d3d11_uninit,
 };
