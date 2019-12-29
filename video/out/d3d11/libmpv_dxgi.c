@@ -76,3 +76,31 @@ const struct render_backend_fns render_backend_dxgi = {
     .perfdata = NULL,
     .destroy = destroy,
 };
+
+/**
+ * Following methods are used by vo_d3d11_headless to retrive informations
+ * passed in from libmpv fake render backend.
+ */
+// pass out the IDXGISwapChain to API user
+bool libmpv_dxgi_swc_out(void* pIDXGISwapChain)
+{
+    if (pPriv->swc_out != NULL) {
+        *(pPriv->swc_out) = pIDXGISwapChain;
+    }
+}
+
+//pass out the ID3D11Device to API user
+bool libmpv_dxgi_dev_out(void* pID3D11Device)
+{
+    if (pPriv->dev_out != NULL) {
+        *(pPriv->dev_out) = pID3D11Device;
+    }
+}
+
+int libmpv_dxgi_get_width(void) {
+    return pPriv->width;
+}
+
+int libmpv_dxgi_get_height(void) {
+    return pPriv->height;
+}
