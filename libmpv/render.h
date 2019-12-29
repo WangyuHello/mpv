@@ -312,6 +312,23 @@ typedef enum mpv_render_param_type {
      * Type : struct mpv_opengl_drm_params_v2*
     */
     MPV_RENDER_PARAM_DRM_DISPLAY_V2 = 16,
+    /**
+     * Use to init libmpv_dxgi fake render backend. Data type should be 
+     * "mpv_dxgi_init_param" defined in render_dxgi header file.
+     * 
+     * The libmpv_dxgi is only used with vo_d3d11_headless. When using headless
+     * d3d11, vo will create the D3D11Device and Swapchain, and try to pass out
+     * the pointer of two by what API user (you) set in this param.
+     * 
+     * Noted that NULL pointer will be ignored, but a pointer to invalid address
+     * WILL cause errors. It's YOUR responsibility to keep the pointer valid.
+     */
+    MPV_RENDER_PARAM_DXGI_INIT_PARAM = 17,
+    /**
+     * Use to update swapchain render size. Data type should be
+     * "mpv_dxgi_render_param" defined in render_dxgi header file.
+     */
+    MPV_RENDER_PARAM_DXGI_RENDER_PARAM = 18,
 } mpv_render_param_type;
 
 /**

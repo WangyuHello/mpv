@@ -1,17 +1,21 @@
 #include "config.h"
 #include "video/out/gpu/hwdec.h"
-#include "libmpv/render_gl.h"
 #include "video/out/gpu/video.h"
 #include "video/out/libmpv.h"
+#include "libmpv/render_dxgi.h"
 
 #include <windows.h>
 
-// TODO: this should be exposed to d3d11 context_headless, 
+// TODO: this should be exposed vo_d3d11, 
 // and should be retrived when "control" method called.
 typedef struct d3d11_headless_priv {
     int width;
     int height;
+    // pointer to user's swapchain pointer and d3d11 device pointer
+    void* swc_out; // IDXGISwapChain**
+    void* dev_out; // ID3D11Device**
 } d3d11_headless_priv;
+static d3d11_headless_priv* pPriv = NULL;
 
 static int init(struct render_backend* ctx, mpv_render_param* params)
 {
@@ -25,10 +29,16 @@ static int init(struct render_backend* ctx, mpv_render_param* params)
         return MPV_ERROR_NOT_IMPLEMENTED;
     }
 
-    ctx->priv = talloc_zero(NULL, d3d11_headless_priv);
-    d3d11_headless_priv* m_priv = ctx->priv;
-    m_priv->width = 320;
-    m_priv->height = 240;
+    pPriv = ctx->priv = talloc_zero(NULL, d3d11_headless_priv);
+    pPriv->width = 320;
+    pPriv->height = 240;
+
+    //TODO: define a new init param type
+    mpv_dxgi_init_param* init_param = get_mpv_render_param(params, MPV_RENDER_PARAM_DXGI_INIT_PARAM, NULL);
+    if (init_param != NULL) {
+        pPriv->swc_out = init_param->swc_out;
+        pPriv->dev_out = init_param->dev_out;
+    }
     return 0;
 }
 
@@ -37,17 +47,12 @@ static bool check_format(struct render_backend* ctx, int imgfmt)
     return true;
 }
 
-typedef struct render_size {
-    int width;
-    int height;
-} render_size;
-
 static int set_parameter(struct render_backend* ctx, mpv_render_param param) {
     // TODO: use this method to update render size things.
-    render_size* new_size = param.data;
+    mpv_dxgi_render_param* render_param = param.data;
     d3d11_headless_priv* priv = ctx->priv;
-    priv->width = new_size->width;
-    priv->height = new_size->height;
+    priv->width = render_param->width;
+    priv->height = render_param->height;
     return 0;
 }
 
