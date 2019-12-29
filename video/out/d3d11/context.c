@@ -430,7 +430,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
 
     // pass out the device and swapchain
     libmpv_dxgi_dev_out(p->device);
-    libmpv_dxgi_dev_out(p->swapchain);
+    libmpv_dxgi_swc_out(p->swapchain);
     return true;
 
 error:
@@ -441,7 +441,7 @@ error:
 static bool d3d11_headless_init(struct ra_ctx* ctx) {
     struct priv* p = ctx->priv = talloc_zero(ctx, struct priv);
     p->is_headless = true;
-    d3d11_init(ctx);
+    return d3d11_init(ctx);
 }
 
 const struct ra_ctx_fns ra_ctx_d3d11 = {
