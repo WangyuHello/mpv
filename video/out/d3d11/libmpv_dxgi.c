@@ -5,6 +5,7 @@
 #include "libmpv/render_dxgi.h"
 
 #include <windows.h>
+#include <d3d11.h>
 
 // TODO: this should be exposed vo_d3d11, 
 // and should be retrived when "control" method called.
@@ -19,7 +20,6 @@ static d3d11_headless_priv* pPriv = NULL;
 
 static int init(struct render_backend* ctx, mpv_render_param* params)
 {
-    MessageBox(NULL, L"libmpv_headless init", NULL, MB_OK);
     char* api = get_mpv_render_param(params, MPV_RENDER_PARAM_API_TYPE, NULL);
     if (!api) {
         return MPV_ERROR_INVALID_PARAMETER;
@@ -81,20 +81,26 @@ const struct render_backend_fns render_backend_dxgi = {
  * Following methods are used by vo_d3d11_headless to retrive informations
  * passed in from libmpv fake render backend.
  */
-// pass out the IDXGISwapChain to API user
+ // pass out the IDXGISwapChain to API user
 bool libmpv_dxgi_swc_out(void* pIDXGISwapChain)
 {
+    IDXGISwapChain** _swc_out = pPriv->swc_out;
     if (pPriv->swc_out != NULL) {
-        *(pPriv->swc_out) = pIDXGISwapChain;
+        *_swc_out = (IDXGISwapChain*)pIDXGISwapChain;
+        return true;
     }
+    return false;
 }
 
 //pass out the ID3D11Device to API user
 bool libmpv_dxgi_dev_out(void* pID3D11Device)
 {
+    ID3D11Device** _dev_out = pPriv->dev_out;
     if (pPriv->dev_out != NULL) {
-        *(pPriv->dev_out) = pID3D11Device;
+        *_dev_out = (ID3D11Device*)pID3D11Device;
+        return true;
     }
+    return false;
 }
 
 int libmpv_dxgi_get_width(void) {
