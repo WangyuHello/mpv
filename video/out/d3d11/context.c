@@ -176,7 +176,10 @@ static bool resize(struct ra_ctx *ctx)
 
 static bool d3d11_reconfig(struct ra_ctx *ctx)
 {
-    vo_w32_config(ctx->vo);
+    struct priv* p = ctx->priv;
+    if (!p->is_headless) {
+        vo_w32_config(ctx->vo);
+    }
     return resize(ctx);
 }
 
@@ -328,7 +331,7 @@ static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg
     struct priv* p = ctx->priv;
     int ret;
     if (p->is_headless) {
-
+        ret = d3d11_headless_control(ctx->vo, events, request, arg);
     }
     else {
         ret = vo_w32_control(ctx->vo, events, request, arg);
