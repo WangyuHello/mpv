@@ -1,5 +1,5 @@
-#include "headless_helper.h"
 #include "video/out/vo.h"
+#include "headless_helper.h"
 
 int d3d11_headless_control(struct vo* vo, int* events, int request, void* arg) {
     int width_new = libmpv_dxgi_get_width(),

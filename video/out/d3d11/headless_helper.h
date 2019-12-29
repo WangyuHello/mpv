@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 // methods defined in libmpv_dxgi.c
 bool libmpv_dxgi_swc_out(void* pIDXGISwapChain);
 bool libmpv_dxgi_dev_out(void* pID3D11Device);
