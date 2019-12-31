@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <d3d11.h>
 
-// TODO: this should be exposed vo_d3d11, 
+// This is exposed vo_d3d11, 
 // and should be retrived when "control" method called.
 typedef struct d3d11_headless_priv {
     int width;
@@ -33,7 +33,6 @@ static int init(struct render_backend* ctx, mpv_render_param* params)
     pPriv->width = 320;
     pPriv->height = 240;
 
-    //TODO: define a new init param type
     mpv_dxgi_init_param* init_param = get_mpv_render_param(params, MPV_RENDER_PARAM_DXGI_INIT_PARAM, NULL);
     if (init_param != NULL) {
         pPriv->swc_out = init_param->swc_out;
@@ -48,7 +47,7 @@ static bool check_format(struct render_backend* ctx, int imgfmt)
 }
 
 static int set_parameter(struct render_backend* ctx, mpv_render_param param) {
-    // TODO: use this method to update render size things.
+    // update render size.
     mpv_dxgi_render_param* render_param = param.data;
     d3d11_headless_priv* priv = ctx->priv;
     priv->width = render_param->width;
