@@ -57,7 +57,7 @@ static int set_parameter(struct render_backend* ctx, mpv_render_param param) {
 
 static void destroy(struct render_backend* ctx)
 {
-    // TODO: destroy me
+    talloc_free(ctx->priv);
 }
 
 const struct render_backend_fns render_backend_dxgi = {
