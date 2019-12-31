@@ -41,11 +41,6 @@ static int init(struct render_backend* ctx, mpv_render_param* params)
     return 0;
 }
 
-static bool check_format(struct render_backend* ctx, int imgfmt)
-{
-    return true;
-}
-
 static int set_parameter(struct render_backend* ctx, mpv_render_param param) {
     // update render size.
     mpv_dxgi_render_param* render_param = param.data;
@@ -60,19 +55,64 @@ static void destroy(struct render_backend* ctx)
     talloc_free(ctx->priv);
 }
 
+/**
+ * Following methods basically do nothing but prevent unexpected crash.
+ */
+static bool check_format(struct render_backend* ctx, int imgfmt)
+{
+    return true;
+}
+static void reconfig(struct render_backend* ctx, struct mp_image_params* params)
+{
+    return;
+}
+static void reset(struct render_backend* ctx)
+{
+    return;
+}
+static void update_external(struct render_backend* ctx, struct vo* vo)
+{
+    return;
+}
+static void resize(struct render_backend* ctx, struct mp_rect* src,
+    struct mp_rect* dst, struct mp_osd_res* osd)
+{
+    return;
+}
+static int get_target_size(struct render_backend* ctx, mpv_render_param* params,
+    int* out_w, int* out_h)
+{
+    return 0;
+}
+static int render(struct render_backend* ctx, mpv_render_param* params,
+    struct vo_frame* frame)
+{
+    return 0;
+}
+static void screenshot(struct render_backend* ctx, struct vo_frame* frame,
+    struct voctrl_screenshot* args)
+{
+    return;
+}
+static void perfdata(struct render_backend* ctx,
+    struct voctrl_performance_data* out)
+{
+    return;
+}
+
 const struct render_backend_fns render_backend_dxgi = {
     .init = init,
     .check_format = check_format,
     .set_parameter = set_parameter,
-    .reconfig = NULL,
-    .reset = NULL,
-    .update_external = NULL,
-    .resize = NULL,
-    .get_target_size = NULL,
-    .render = NULL,
+    .reconfig = reconfig,
+    .reset = reset,
+    .update_external = update_external,
+    .resize = resize,
+    .get_target_size = get_target_size,
+    .render = render,
     .get_image = NULL,
-    .screenshot = NULL,
-    .perfdata = NULL,
+    .screenshot = screenshot,
+    .perfdata = perfdata,
     .destroy = destroy,
 };
 
