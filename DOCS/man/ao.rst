@@ -14,8 +14,7 @@ in the list.
 
     See ``--ao=help`` for a list of compiled-in audio output drivers. The
     driver ``--ao=alsa`` is preferred. ``--ao=pulse`` is preferred on systems
-    where PulseAudio is used. On BSD systems, ``--ao=oss`` or ``--ao=sndio``
-    may work (the latter being experimental).
+    where PulseAudio is used. On BSD systems, ``--ao=oss`` is preferred.
 
 Available audio output drivers are:
 
@@ -38,15 +37,6 @@ Available audio output drivers are:
 
 ``oss``
     OSS audio output driver
-
-    The following global options are supported by this audio output:
-
-    ``--oss-mixer-device``
-        Sets the audio mixer device (default: ``/dev/mixer``).
-    ``--oss-mixer-channel``
-        Sets the audio mixer channel (default: ``pcm``). Other valid values
-        include **vol, pcm, line**. For a complete list of options look for
-        ``SOUND_DEVICE_NAMES`` in ``/usr/include/linux/soundcard.h``.
 
 ``jack``
     JACK (Jack Audio Connection Kit) audio output driver.
@@ -78,8 +68,8 @@ Available audio output drivers are:
         mode is probably not very useful, other than for debugging or when used
         with fixed setups.
 
-``coreaudio`` (Mac OS X only)
-    Native Mac OS X audio output driver using AudioUnits and the CoreAudio
+``coreaudio`` (macOS only)
+    Native macOS audio output driver using AudioUnits and the CoreAudio
     sound server.
 
     Automatically redirects to ``coreaudio_exclusive`` when playing compressed
@@ -105,12 +95,12 @@ Available audio output drivers are:
         extreme care.
 
 
-``coreaudio_exclusive`` (Mac OS X only)
-    Native Mac OS X audio output driver using direct device access and
+``coreaudio_exclusive`` (macOS only)
+    Native macOS audio output driver using direct device access and
     exclusive mode (bypasses the sound server).
 
 ``openal``
-    OpenAL audio output driver
+    OpenAL audio output driver.
 
     ``--openal-num-buffers=<2-128>``
         Specify the number of audio buffers to use. Lower values are better for
@@ -122,9 +112,7 @@ Available audio output drivers are:
 
     ``--openal-direct-channels=<yes|no>``
         Enable OpenAL Soft's direct channel extension when available to avoid
-        tinting the sound with ambisonics or HRTF.
-        Channels are dropped when when they are not available as downmixing
-        will be disabled. Default: no.
+        tinting the sound with ambisonics or HRTF. Default: yes.
 
 ``pulse``
     PulseAudio audio output driver
@@ -156,6 +144,17 @@ Available audio output drivers are:
         Allow mpv to use PulseAudio even if the sink is suspended (default: no).
         Can be useful if PulseAudio is running as a bridge to jack and mpv has its sink-input set to the one jack is using.
 
+``pipewire``
+    PipeWire audio output driver
+
+    The following global options are supported by this audio output:
+
+    ``--pipewire-buffer=<1-2000|native>``
+        Set the audio buffer size in milliseconds. A higher value buffers
+        more data, and has a lower probability of buffer underruns. A smaller
+        value makes the audio stream react faster, e.g. to playback speed
+        changes.
+
 ``sdl``
     SDL 1.2+ audio output driver. Should work on any platform supported by SDL
     1.2, but may require the ``SDL_AUDIODRIVER`` environment variable to be set
@@ -172,10 +171,6 @@ Available audio output drivers are:
         sound system. Playing a file with ``-v`` will show the requested and
         obtained exact buffer size. A value of 0 selects the sound system
         default.
-
-    ``--sdl-bufcnt=<count>``
-        Sets the number of extra audio buffers in mpv. Usually needs not be
-        changed.
 
 ``null``
     Produces no audio output but maintains video playback speed. You can use
@@ -233,18 +228,8 @@ Available audio output drivers are:
         ``no-waveheader`` option - with ``waveheader`` it's broken, because
         it will write a WAVE header every time the file is opened.
 
-``rsound``
-    Audio output to an RSound daemon. Use ``--audio-device=rsound/<hostname>``
-    to set the host name (with ``<hostname>`` replaced, without the ``< >``).
-
-    .. note:: Completely useless, unless you intend to run RSound. Not to be
-              confused with RoarAudio, which is something completely
-              different.
-
 ``sndio``
     Audio output to the OpenBSD sndio sound system
-
-    .. note:: Experimental. There are known bugs and issues.
 
     (Note: only supports mono, stereo, 4.0, 5.1 and 7.1 channel
     layouts.)

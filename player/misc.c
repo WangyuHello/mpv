@@ -45,6 +45,12 @@
 #include "core.h"
 #include "command.h"
 
+const int num_ptracks[STREAM_TYPE_COUNT] = {
+    [STREAM_VIDEO] = 1,
+    [STREAM_AUDIO] = 1,
+    [STREAM_SUB] = 2,
+};
+
 double rel_time_to_abs(struct MPContext *mpctx, struct m_rel_time t)
 {
     double length = get_time_length(mpctx);
@@ -122,6 +128,9 @@ bool get_ab_loop_times(struct MPContext *mpctx, double t[2])
 
     t[0] = opts->ab_loop[0];
     t[1] = opts->ab_loop[1];
+
+    if (!opts->ab_loop_count)
+        return false;
 
     if (t[0] == MP_NOPTS_VALUE || t[1] == MP_NOPTS_VALUE || t[0] == t[1])
         return false;
@@ -238,7 +247,9 @@ void error_on_track(struct MPContext *mpctx, struct track *track)
 int stream_dump(struct MPContext *mpctx, const char *source_filename)
 {
     struct MPOpts *opts = mpctx->opts;
-    stream_t *stream = stream_open(source_filename, mpctx->global);
+    stream_t *stream = stream_create(source_filename,
+                                     STREAM_ORIGIN_DIRECT | STREAM_READ,
+                                     mpctx->playback_abort, mpctx->global);
     if (!stream)
         return -1;
 
@@ -276,11 +287,12 @@ int stream_dump(struct MPContext *mpctx, const char *source_filename)
 
 void merge_playlist_files(struct playlist *pl)
 {
-    if (!pl->first)
+    if (!pl->num_entries)
         return;
     char *edl = talloc_strdup(NULL, "edl://");
-    for (struct playlist_entry *e = pl->first; e; e = e->next) {
-        if (e != pl->first)
+    for (int n = 0; n < pl->num_entries; n++) {
+        struct playlist_entry *e = pl->entries[n];
+        if (n)
             edl = talloc_strdup_append_buffer(edl, ";");
         // Escape if needed
         if (e->filename[strcspn(e->filename, "=%,;\n")] ||
@@ -294,4 +306,16 @@ void merge_playlist_files(struct playlist *pl)
     playlist_clear(pl);
     playlist_add_file(pl, edl);
     talloc_free(edl);
+}
+
+const char *mp_status_str(enum playback_status st)
+{
+    switch (st) {
+    case STATUS_SYNCING:    return "syncing";
+    case STATUS_READY:      return "ready";
+    case STATUS_PLAYING:    return "playing";
+    case STATUS_DRAINING:   return "draining";
+    case STATUS_EOF:        return "eof";
+    default:                return "bug";
+    }
 }

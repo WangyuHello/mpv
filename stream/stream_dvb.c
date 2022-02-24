@@ -73,12 +73,13 @@ static pthread_mutex_t global_dvb_state_lock = PTHREAD_MUTEX_INITIALIZER;
 
 const struct m_sub_options stream_dvb_conf = {
     .opts = (const m_option_t[]) {
-        OPT_STRING("prog", cfg_prog, 0),
-        OPT_INTRANGE("card", cfg_devno, 0, 0, MAX_ADAPTERS-1),
-        OPT_INTRANGE("timeout", cfg_timeout, 0, 1, 30),
-        OPT_STRING("file", cfg_file, M_OPT_FILE),
-        OPT_FLAG("full-transponder", cfg_full_transponder, 0),
-        OPT_INT("channel-switch-offset", cfg_channel_switch_offset, 0),
+        {"prog", OPT_STRING(cfg_prog), .flags = UPDATE_DVB_PROG},
+        {"card", OPT_INT(cfg_devno), M_RANGE(0, MAX_ADAPTERS-1)},
+        {"timeout", OPT_INT(cfg_timeout), M_RANGE(1, 30)},
+        {"file", OPT_STRING(cfg_file), .flags = M_OPT_FILE},
+        {"full-transponder", OPT_FLAG(cfg_full_transponder)},
+        {"channel-switch-offset", OPT_INT(cfg_channel_switch_offset),
+            .flags = UPDATE_DVB_PROG},
         {0}
     },
     .size = sizeof(dvb_opts_t),
@@ -377,7 +378,13 @@ static dvb_channels_list_t *dvb_get_channels(struct mp_log *log,
                 }
                 if (!DELSYS_IS_SET(delsys_mask, delsys))
                     continue; /* Skip channel. */
-               /* PASSTROUTH */
+                mp_verbose(log, "VDR, %s, NUM: %d, NUM_FIELDS: %d, NAME: %s, "
+                           "FREQ: %d, SRATE: %d, T2: %s",
+                           get_dvb_delsys(delsys),
+                           list->NUM_CHANNELS, fields,
+                           ptr->name, ptr->freq, ptr->srate,
+                           (delsys == SYS_DVBT2) ? "yes" : "no");
+                break;
             case SYS_DVBC_ANNEX_A:
             case SYS_DVBC_ANNEX_C:
             case SYS_ATSC:
@@ -417,7 +424,7 @@ static dvb_channels_list_t *dvb_get_channels(struct mp_log *log,
                     }
                 }
 
-                mp_verbose(log, "%s NUM: %d, NUM_FIELDS: %d, NAME: %s, "
+                mp_verbose(log, "VDR, %s, NUM: %d, NUM_FIELDS: %d, NAME: %s, "
                            "FREQ: %d, SRATE: %d, POL: %c, DISEQC: %d, S2: %s, "
                            "StreamID: %d, SID: %d",
                            get_dvb_delsys(delsys),
@@ -829,8 +836,6 @@ int dvb_set_channel(stream_t *stream, unsigned int adapter, unsigned int n)
     MP_VERBOSE(stream, "DVB_SET_CHANNEL: new channel name=%s, adapter: %d, "
                "channel %d\n", channel->name, devno, n);
 
-    stream_drop_buffers(stream);
-
     if (channel->freq != state->last_freq) {
         if (!dvb_tune(priv, channel->delsys, channel->freq,
                       channel->pol, channel->srate, channel->diseqc,
@@ -1040,6 +1045,7 @@ static int dvb_open(stream_t *stream)
     }
 
     if (!dvb_parse_path(stream)) {
+        pthread_mutex_unlock(&global_dvb_state_lock);
         goto err_out;
     }
 
@@ -1196,14 +1202,16 @@ dvb_state_t *dvb_get_state(stream_t *stream)
                 case SYS_DVBT:
                     if (DELSYS_IS_SET(delsys_mask[f], SYS_DVBT2))
                         continue; /* Add all channels later with T2. */
-                    /* PASSTOUTH */
+                    conf_file_name = "channels.conf.ter";
+                    break;
                 case SYS_DVBT2:
                     conf_file_name = "channels.conf.ter";
                     break;
                 case SYS_DVBS:
                     if (DELSYS_IS_SET(delsys_mask[f], SYS_DVBS2))
                         continue; /* Add all channels later with S2. */
-                    /* PASSTOUTH */
+                    conf_file_name = "channels.conf.sat";
+                    break;
                 case SYS_DVBS2:
                     conf_file_name = "channels.conf.sat";
                     break;
@@ -1266,4 +1274,5 @@ const stream_info_t stream_info_dvb = {
     .name = "dvbin",
     .open = dvb_open,
     .protocols = (const char *const[]){ "dvb", NULL },
+    .stream_origin = STREAM_ORIGIN_UNSAFE,
 };

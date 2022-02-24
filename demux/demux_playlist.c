@@ -50,7 +50,7 @@ static bool check_mimetype(struct stream *s, const char *const *list)
 struct pl_parser {
     struct mp_log *log;
     struct stream *s;
-    char buffer[512 * 1024];
+    char buffer[2 * 1024 * 1024];
     int utf16;
     struct playlist *pl;
     bool error;
@@ -462,6 +462,7 @@ static int open_file(struct demuxer *demuxer, enum demux_check check)
     bool ok = fmt->parse(p) >= 0 && !p->error;
     if (p->add_base)
         playlist_add_base_path(p->pl, mp_dirname(demuxer->filename));
+    playlist_set_stream_flags(p->pl, demuxer->stream_origin);
     demuxer->playlist = talloc_steal(demuxer, p->pl);
     demuxer->filetype = p->format ? p->format : fmt->name;
     demuxer->fully_read = true;

@@ -43,6 +43,7 @@
 #include "common/common.h"
 #include "common/msg.h"
 #include "common/msg_control.h"
+#include "common/stats.h"
 #include "common/global.h"
 #include "filters/f_decoder_wrapper.h"
 #include "options/parse_configfile.h"
@@ -53,7 +54,6 @@
 #include "input/input.h"
 
 #include "audio/out/ao.h"
-#include "demux/demux.h"
 #include "misc/thread_tools.h"
 #include "sub/osd.h"
 #include "test/tests.h"
@@ -65,7 +65,7 @@
 #include "screenshot.h"
 
 static const char def_config[] =
-#include "player/builtin_conf.inc"
+#include "generated/etc/builtin.conf.inc"
 ;
 
 #if HAVE_COCOA
@@ -144,7 +144,7 @@ void mp_print_version(struct mp_log *log, int always)
     int v = always ? MSGL_INFO : MSGL_V;
     mp_msg(log, v, "%s %s\n built on %s\n",
            mpv_version, mpv_copyright, mpv_builddate);
-    print_libav_versions(log, v);
+    check_library_versions(log, v);
     mp_msg(log, v, "\n");
     // Only in verbose mode.
     if (!always) {
@@ -193,6 +193,7 @@ void mp_destroy(struct MPContext *mpctx)
     assert(!mpctx->num_abort_list);
     talloc_free(mpctx->abort_list);
     pthread_mutex_destroy(&mpctx->abort_lock);
+    talloc_free(mpctx->mconfig); // destroy before dispatch
     talloc_free(mpctx);
 }
 
@@ -200,29 +201,6 @@ static bool handle_help_options(struct MPContext *mpctx)
 {
     struct MPOpts *opts = mpctx->opts;
     struct mp_log *log = mpctx->log;
-    if (opts->audio_decoders && strcmp(opts->audio_decoders, "help") == 0) {
-        struct mp_decoder_list *list = audio_decoder_list();
-        mp_print_decoders(log, MSGL_INFO, "Audio decoders:", list);
-        talloc_free(list);
-        return true;
-    }
-    if (opts->audio_spdif && strcmp(opts->audio_spdif, "help") == 0) {
-        MP_INFO(mpctx, "Choices: ac3,dts-hd,dts (and possibly more)\n");
-        return true;
-    }
-    if (opts->video_decoders && strcmp(opts->video_decoders, "help") == 0) {
-        struct mp_decoder_list *list = video_decoder_list();
-        mp_print_decoders(log, MSGL_INFO, "Video decoders:", list);
-        talloc_free(list);
-        return true;
-    }
-    if ((opts->demuxer_name && strcmp(opts->demuxer_name, "help") == 0) ||
-        (opts->audio_demuxer_name && strcmp(opts->audio_demuxer_name, "help") == 0) ||
-        (opts->sub_demuxer_name && strcmp(opts->sub_demuxer_name, "help") == 0)) {
-        demuxer_help(log);
-        MP_INFO(mpctx, "\n");
-        return true;
-    }
     if (opts->ao_opts->audio_device &&
         strcmp(opts->ao_opts->audio_device, "help") == 0)
     {
@@ -278,11 +256,11 @@ struct MPContext *mp_create(void)
         .last_chapter = -2,
         .term_osd_contents = talloc_strdup(mpctx, ""),
         .osd_progbar = { .type = -1 },
-        .playlist = talloc_struct(mpctx, struct playlist, {0}),
+        .playlist = talloc_zero(mpctx, struct playlist),
         .dispatch = mp_dispatch_create(mpctx),
         .playback_abort = mp_cancel_new(mpctx),
         .thread_pool = mp_thread_pool_create(mpctx, 0, 1, 30),
-        .stop_play = PT_STOP,
+        .stop_play = PT_NEXT_ENTRY,
         .play_dir = 1,
     };
 
@@ -290,14 +268,17 @@ struct MPContext *mp_create(void)
 
     mpctx->global = talloc_zero(mpctx, struct mpv_global);
 
+    stats_global_init(mpctx->global);
+
     // Nothing must call mp_msg*() and related before this
     mp_msg_init(mpctx->global);
     mpctx->log = mp_log_new(mpctx, mpctx->global->log, "!cplayer");
     mpctx->statusline = mp_log_new(mpctx, mpctx->log, "!statusline");
 
+    mpctx->stats = stats_ctx_create(mpctx, mpctx->global, "main");
+
     // Create the config context and register the options
-    mpctx->mconfig = m_config_new(mpctx, mpctx->log, sizeof(struct MPOpts),
-                                  &mp_default_opts, mp_opts);
+    mpctx->mconfig = m_config_new(mpctx, mpctx->log, &mp_opt_root);
     mpctx->opts = mpctx->mconfig->optstruct;
     mpctx->global->config = mpctx->mconfig->shadow;
     mpctx->mconfig->includefunc = cfg_include;
@@ -345,6 +326,7 @@ int mp_initialize(struct MPContext *mpctx, char **options)
     }
 
     mp_init_paths(mpctx->global, opts);
+    mp_msg_set_early_logging(mpctx->global, true);
     mp_update_logging(mpctx, true);
 
     if (options) {
@@ -371,37 +353,32 @@ int mp_initialize(struct MPContext *mpctx, char **options)
         m_config_set_profile(mpctx->mconfig, "pseudo-gui", 0);
     }
 
-    mp_get_resume_defaults(mpctx);
+    // Backup the default settings, which should not be stored in the resume
+    // config files. This explicitly includes values set by config files and
+    // the command line.
+    m_config_backup_watch_later_opts(mpctx->mconfig);
 
     mp_input_load_config(mpctx->input);
 
     // From this point on, all mpctx members are initialized.
     mpctx->initialized = true;
-    mpctx->mconfig->option_set_callback = mp_on_set_option;
-    mpctx->mconfig->option_set_callback_cb = mpctx;
     mpctx->mconfig->option_change_callback = mp_option_change_callback;
     mpctx->mconfig->option_change_callback_ctx = mpctx;
+    m_config_set_update_dispatch_queue(mpctx->mconfig, mpctx->dispatch);
     // Run all update handlers.
-    mp_option_change_callback(mpctx, NULL, UPDATE_OPTS_MASK);
+    mp_option_change_callback(mpctx, NULL, UPDATE_OPTS_MASK, false);
 
     if (handle_help_options(mpctx))
         return 1; // help
 
-    if (!print_libav_versions(mp_null_log, 0)) {
-        print_libav_versions(mpctx->log, MSGL_FATAL);
-        MP_FATAL(mpctx, "\nmpv was compiled against an incompatible version of "
-                 "FFmpeg/Libav than the shared\nlibrary it is linked against. "
-                 "This is most likely a broken build and could\nresult in "
-                 "misbehavior and crashes.\n\nThis is a broken build.\n");
-        return -1;
-    }
+    check_library_versions(mp_null_log, 0);
 
 #if HAVE_TESTS
     if (opts->test_mode && opts->test_mode[0])
         return run_tests(mpctx) ? 1 : -1;
 #endif
 
-    if (!mpctx->playlist->first && !opts->player_idle_mode) {
+    if (!mpctx->playlist->num_entries && !opts->player_idle_mode) {
         // nothing to play
         mp_print_version(mpctx->log, true);
         MP_INFO(mpctx, "%s", mp_help_text);
@@ -425,15 +402,14 @@ int mp_initialize(struct MPContext *mpctx, char **options)
         mp_input_enable_section(mpctx->input, "encode", MP_INPUT_EXCLUSIVE);
     }
 
-#if !HAVE_LIBASS
-    MP_WARN(mpctx, "Compiled without libass.\n");
-    MP_WARN(mpctx, "There will be no OSD and no text subtitles.\n");
-#endif
-
     mp_load_scripts(mpctx);
 
     if (opts->force_vo == 2 && handle_force_window(mpctx, false) < 0)
         return -1;
+
+    // Needed to properly enter _initial_ idle mode if playlist empty.
+    if (mpctx->opts->player_idle_mode && !mpctx->playlist->num_entries)
+        mpctx->stop_play = PT_STOP;
 
     MP_STATS(mpctx, "end init");
 
@@ -480,7 +456,7 @@ int mpv_main(int argc, char *argv[])
     }
 
     if (reason)
-        MP_INFO(mpctx, "\nExiting... (%s)\n", reason);
+        MP_INFO(mpctx, "Exiting... (%s)\n", reason);
     if (mpctx->has_quit_custom_rc)
         rc = mpctx->quit_custom_rc;
 

@@ -23,6 +23,7 @@
 #include <poll.h>
 #include <unistd.h>
 
+#include <drm_fourcc.h>
 #include <libswscale/swscale.h>
 
 #include "drm_common.h"
@@ -44,7 +45,6 @@
 
 #define BYTES_PER_PIXEL 4
 #define BITS_PER_PIXEL 32
-#define USE_MASTER 0
 
 struct framebuffer {
     uint32_t width;
@@ -85,7 +85,7 @@ struct priv {
     unsigned int fb_queue_len;
     struct framebuffer *cur_fb;
 
-    uint32_t depth;
+    uint32_t drm_format;
     enum mp_imgfmt imgfmt;
 
     int32_t screen_w;
@@ -139,8 +139,13 @@ static bool fb_setup_single(struct vo *vo, int fd, struct framebuffer *buf)
     buf->handle = creq.handle;
 
     // create framebuffer object for the dumb-buffer
-    if (drmModeAddFB(fd, buf->width, buf->height, p->depth, creq.bpp, buf->stride,
-                     buf->handle, &buf->fb)) {
+    int ret = drmModeAddFB2(fd, buf->width, buf->height,
+                            p->drm_format,
+                            (uint32_t[4]){buf->handle, 0, 0, 0},
+                            (uint32_t[4]){buf->stride, 0, 0, 0},
+                            (uint32_t[4]){0, 0, 0, 0},
+                            &buf->fb, 0);
+    if (ret) {
         MP_ERR(vo, "Cannot create framebuffer: %s\n", mp_strerror(errno));
         goto err;
     }
@@ -249,25 +254,19 @@ static void release_vt(void *data)
 {
     struct vo *vo = data;
     crtc_release(vo);
-    if (USE_MASTER) {
-        //this function enables support for switching to x, weston etc.
-        //however, for whatever reason, it can be called only by root users.
-        //until things change, this is commented.
-        struct priv *p = vo->priv;
-        if (drmDropMaster(p->kms->fd)) {
-            MP_WARN(vo, "Failed to drop DRM master: %s\n", mp_strerror(errno));
-        }
+
+    const struct priv *p = vo->priv;
+    if (drmDropMaster(p->kms->fd)) {
+        MP_WARN(vo, "Failed to drop DRM master: %s\n", mp_strerror(errno));
     }
 }
 
 static void acquire_vt(void *data)
 {
     struct vo *vo = data;
-    if (USE_MASTER) {
-        struct priv *p = vo->priv;
-        if (drmSetMaster(p->kms->fd)) {
-            MP_WARN(vo, "Failed to acquire DRM master: %s\n", mp_strerror(errno));
-        }
+    const struct priv *p = vo->priv;
+    if (drmSetMaster(p->kms->fd)) {
+        MP_WARN(vo, "Failed to acquire DRM master: %s\n", mp_strerror(errno));
     }
 
     crtc_setup(vo);
@@ -316,8 +315,7 @@ static int reconfig(struct vo *vo, struct mp_image_params *params)
     p->cur_frame = mp_image_alloc(p->imgfmt, p->screen_w, p->screen_h);
     mp_image_params_guess_csp(&p->sws->dst);
     mp_image_set_params(p->cur_frame, &p->sws->dst);
-    p->cur_frame[0].w = p->screen_w;
-    p->cur_frame[0].h = p->screen_h;
+    mp_image_set_size(p->cur_frame, p->screen_w, p->screen_h);
 
     talloc_free(p->cur_frame_cropped);
     p->cur_frame_cropped = mp_image_new_dummy_ref(p->cur_frame);
@@ -390,7 +388,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi, struct framebuffer *front
             osd_draw_on_image(vo->osd, p->osd, 0, 0, p->cur_frame);
         }
 
-        if (p->depth == 30) {
+        if (p->drm_format == DRM_FORMAT_XRGB2101010) {
             // Pack GBRP10 image into XRGB2101010 for DRM
             const int w = p->cur_frame->w;
             const int h = p->cur_frame->h;
@@ -413,7 +411,7 @@ static void draw_image(struct vo *vo, mp_image_t *mpi, struct framebuffer *front
                 r_ptr += r_padding;
                 fbuf_ptr += fbuf_padding;
             }
-        } else {
+        } else { // p->drm_format == DRM_FORMAT_XRGB8888
             memcpy_pic(front_buf->map, p->cur_frame->planes[0],
                        p->cur_frame->w * BYTES_PER_PIXEL, p->cur_frame->h,
                        front_buf->stride,
@@ -489,6 +487,7 @@ static void queue_flip(struct vo *vo, struct kms_frame *frame)
     data->vsync = &p->vsync;
     data->vsync_info = &p->vsync_info;
     data->waiting_for_flip = &p->waiting_for_flip;
+    data->log = vo->log;
 
     ret = drmModePageFlip(p->kms->fd, p->kms->crtc_id,
                           p->cur_fb->fb,
@@ -567,6 +566,7 @@ static int preinit(struct vo *vo)
     }
 
     p->kms = kms_create(vo->log,
+                        vo->opts->drm_opts->drm_device_path,
                         vo->opts->drm_opts->drm_connector_spec,
                         vo->opts->drm_opts->drm_mode_spec,
                         0, 0, false);
@@ -576,10 +576,10 @@ static int preinit(struct vo *vo)
     }
 
     if (vo->opts->drm_opts->drm_format == DRM_OPTS_FORMAT_XRGB2101010) {
-        p->depth = 30;
+        p->drm_format = DRM_FORMAT_XRGB2101010;
         p->imgfmt = IMGFMT_XRGB2101010;
     } else {
-        p->depth = 24;
+        p->drm_format = DRM_FORMAT_XRGB8888;;
         p->imgfmt = IMGFMT_XRGB8888;
     }
 
@@ -590,8 +590,9 @@ static int preinit(struct vo *vo)
         goto err;
     }
 
-    uint64_t has_dumb;
-    if (drmGetCap(p->kms->fd, DRM_CAP_DUMB_BUFFER, &has_dumb) < 0) {
+    uint64_t has_dumb = 0;
+    if (drmGetCap(p->kms->fd, DRM_CAP_DUMB_BUFFER, &has_dumb) < 0
+        || has_dumb == 0) {
         MP_ERR(vo, "Card \"%d\" does not support dumb buffers.\n",
                p->kms->card_no);
         goto err;
@@ -647,6 +648,11 @@ static int control(struct vo *vo, uint32_t request, void *arg)
         *(double*)arg = fps;
         return VO_TRUE;
     }
+    case VOCTRL_GET_DISPLAY_RES: {
+        ((int *)arg)[0] = p->kms->mode.mode.hdisplay;
+        ((int *)arg)[1] = p->kms->mode.mode.vdisplay;
+        return VO_TRUE;
+    }
     case VOCTRL_PAUSE:
         vo->want_redraw = true;
         p->paused = true;
@@ -666,7 +672,7 @@ static int control(struct vo *vo, uint32_t request, void *arg)
 
 const struct vo_driver video_out_drm = {
     .name = "drm",
-    .description = "Direct Rendering Manager",
+    .description = "Direct Rendering Manager (software scaling)",
     .preinit = preinit,
     .query_format = query_format,
     .reconfig = reconfig,

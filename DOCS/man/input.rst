@@ -41,6 +41,8 @@ commands they're bound to on the OSD, instead of executing the commands::
 (Only closing the window will make **mpv** exit, pressing normal keys will
 merely display the binding, even if mapped to quit.)
 
+Also see `Key names`_.
+
 input.conf syntax
 -----------------
 
@@ -60,8 +62,8 @@ character), or a symbolic name (as printed by ``--input-keylist``).
 command.
 
 ``<command>`` is the command itself. It consists of the command name and
-multiple (or none) commands, all separated by whitespace. String arguments
-need to be quoted with ``"``. Details see ``Flat command syntax``.
+multiple (or none) arguments, all separated by whitespace. String arguments
+should be quoted, typically with ``"``. See ``Flat command syntax``.
 
 You can bind multiple commands to one key. For example:
 
@@ -78,25 +80,124 @@ that matches, and the multi-key command will never be called. Intermediate keys
 can be remapped to ``ignore`` in order to avoid this issue. The maximum number
 of (non-modifier) keys for combinations is currently 4.
 
+Key names
+---------
+
+All mouse and keyboard input is to converted to mpv-specific key names. Key
+names are either special symbolic identifiers representing a physical key, or a
+text key names, which are unicode code points encoded as UTF-8. These are what
+keyboard input would normally produce, for example ``a`` for the A key. As a
+consequence, mpv uses input translated by the current OS keyboard layout, rather
+than physical scan codes.
+
+Currently there is the hardcoded assumption that every text key can be
+represented as a single unicode code point (in NFKC form).
+
+All key names can be combined with the modifiers ``Shift``, ``Ctrl``, ``Alt``,
+``Meta``. They must be prefixed to the actual key name, where each modifier
+is followed by a ``+`` (for example ``ctrl+q``).
+
+The ``Shift`` modifier requires some attention. For instance ``Shift+2`` should
+usually be specified as key-name ``@`` at ``input.conf``, and similarly the
+combination ``Alt+Shift+2`` is usually ``Alt+@``, etc. Special key names like
+``Shift+LEFT`` work as expected. If in doubt - use ``--input-test`` to check
+how a key/combination is seen by mpv.
+
+Symbolic key names and modifier names are case-insensitive. Unicode key names
+are case-sensitive because input bindings typically respect the shift key.
+
+Another type of key names are hexadecimal key names, that serve as fallback
+for special keys that are neither unicode, nor have a special mpv defined name.
+They will break as soon as mpv adds proper names for them, but can enable you
+to use a key at all if that does not happen.
+
+All symbolic names are listed by ``--input-keylist``. ``--input-test`` is a
+special mode that prints all input on the OSD.
+
+Comments on some symbolic names:
+
+``KP*``
+    Keypad names. Behavior varies by backend (whether they implement this, and
+    on how they treat numlock), but typically, mpv tries to map keys on the
+    keypad to separate names, even if they produce the same text as normal keys.
+
+``MOUSE_BTN*``, ``MBTN*``
+    Various mouse buttons.
+
+    Depending on backend, the mouse wheel might also be represented as a button.
+    In addition, ``MOUSE_BTN3`` to ``MOUSE_BTN6`` are deprecated aliases for
+    ``WHEEL_UP``, ``WHEEL_DOWN``, ``WHEEL_LEFT``, ``WHEEL_RIGHT``.
+
+    ``MBTN*`` are aliases for ``MOUSE_BTN*``.
+
+``WHEEL_*``
+    Mouse wheels (typically).
+
+``AXIS_*``
+    Deprecated aliases for ``WHEEL_*``.
+
+``*_DBL``
+    Mouse button double clicks.
+
+``MOUSE_MOVE``, ``MOUSE_ENTER``, ``MOUSE_LEAVE``
+    Emitted by mouse move events. Enter/leave happens when the mouse enters or
+    leave the mpv window (or the current mouse region, using the deprecated
+    mouse region input section mechanism).
+
+``CLOSE_WIN``
+    Pseudo key emitted when closing the mpv window using the OS window manager
+    (for example, by clicking the close button in the window title bar).
+
+``GAMEPAD_*``
+    Keys emitted by the SDL gamepad backend.
+
+``UNMAPPED``
+    Pseudo-key that matches any unmapped key. (You should probably avoid this
+    if possible, because it might change behavior or get removed in the future.)
+
+``ANY_UNICODE``
+    Pseudo-key that matches any key that produces text. (You should probably
+    avoid this if possible, because it might change behavior or get removed in
+    the future.)
+
 Flat command syntax
 -------------------
 
 This is the syntax used in input.conf, and referred to "input.conf syntax" in
 a number of other places.
 
-``<command> ::= [<prefixes>] <command_name> (<argument>)*``
-``<argument> ::= (<string> | " <quoted_string> " )``
+|
+| ``<command>  ::= [<prefixes>] <command_name> (<argument>)*``
+| ``<argument> ::= (<unquoted> | " <double_quoted> " | ' <single_quoted> ' | `X <custom_quoted> X`)``
 
 ``command_name`` is an unquoted string with the command name itself. See
 `List of Input Commands`_ for a list.
 
-Arguments are separated by whitespace. This applies even to string arguments.
-For this reason, string arguments should be quoted with ``"``. If a string
-argument contains spaces or certain special characters, quoting and possibly
-escaping is mandatory, or the command cannot be parsed correctly.
+Arguments are separated by whitespaces even if the command expects only one
+argument. Arguments with whitespaces or other special characters must be quoted,
+or the command cannot be parsed correctly.
 
-Inside quotes, C-style escaping can be used. JSON escapes according to RFC 8259,
-minus surrogate pair escapes, should be a safe subset that can be used.
+Double quotes interpret JSON/C-style escaping, like ``\t`` or ``\"`` or ``\\``.
+JSON escapes according to RFC 8259, minus surrogate pair escapes. This is the
+only form which allows newlines at the value - as ``\n``.
+
+Single quotes take the content literally, and cannot include the single-quote
+character at the value.
+
+Custom quotes also take the content literally, but are more flexible than single
+quotes. They start with ````` (back-quote) followed by any ASCII character,
+and end at the first occurance of the same pair in reverse order, e.g.
+```-foo-``` or ````bar````. The final pair sequence is not allowed at the
+value - in these examples ``-``` and `````` respectively. In the second
+example the last character of the value also can't be a back-quote.
+
+Mixed quoting at the same argument, like ``'foo'"bar"``, is not supported.
+
+Note that argument parsing and property expansion happen at different stages.
+First, arguments are determined as described above, and then, where applicable,
+properties are expanded - regardless of argument quoting. However, expansion
+can still be prevented with the ``raw`` prefix or ``$>``. See `Input Command
+Prefixes`_ and `Property Expansion`_.
 
 Commands specified as arrays
 ----------------------------
@@ -119,6 +220,9 @@ quotes and escaping. The array command APIs mentioned above pass strings
 directly to the argument parsers, or can sidestep them by the ability to pass
 non-string values.
 
+Property expansion is disabled by default for these APIs. This can be changed
+with the ``expand-properties`` prefix. See `Input Command Prefixes`_.
+
 Sometimes commands have string arguments, that in turn are actually parsed by
 other components (e.g. filter strings with ``vf add``) - in these cases, you
 you would have to double-escape in input.conf, but not with the array APIs.
@@ -134,17 +238,19 @@ This applies to certain APIs, such as ``mp.command_native()`` (with tables that
 have string keys) in Lua scripting, or ``mpv_command_node()`` (with
 MPV_FORMAT_NODE_MAP) in the C libmpv client API.
 
-Like with array commands, quoting and escaping is inherently not needed in the
-normal case.
-
-The name of each command is defined in each command description in the
-`List of Input Commands`_. ``--input-cmdlist`` also lists them.
+The name of the command is provided with a ``name`` string field. The name of
+each command is defined in each command description in the
+`List of Input Commands`_. ``--input-cmdlist`` also lists them. See the
+``subprocess`` command for an example.
 
 Some commands do not support named arguments (e.g. ``run`` command). You need
 to use APIs that pass arguments as arrays.
 
 Named arguments are not supported in the "flat" input.conf syntax, which means
 you cannot use them for key bindings in input.conf at all.
+
+Property expansion is disabled by default for these APIs. This can be changed
+with the ``expand-properties`` prefix. See `Input Command Prefixes`_.
 
 List of Input Commands
 ----------------------
@@ -201,6 +307,12 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
         Mark the current time position. The next normal ``revert-seek`` command
         will seek back to this point, no matter how many seeks happened since
         last time.
+    mark-permanent
+        If set, mark the current position, and do not change the mark position
+        before the next ``revert-seek`` command that has ``mark`` or
+        ``mark-permanent`` set (or playback of the current file ends). Until
+        this happens, ``revert-seek`` will always seek to the marked point. This
+        flag cannot be combined with ``mark``.
 
     Using it without any arguments gives you the default behavior.
 
@@ -231,6 +343,10 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
     ``down`` to set the cycle direction. On overflow, set the property back to
     the minimum, on underflow set it to the maximum. If ``up`` or ``down`` is
     omitted, assume ``up``.
+
+    Whether or not key-repeat is enabled by default depends on the property.
+    Currently properties with continuous values are repeatable by default (like
+    ``volume``), while discrete values are not (like ``osd-level``).
 
 ``multiply <name> <value>``
     Similar to ``add``, but multiplies the property or option with the numeric
@@ -301,8 +417,35 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
     force
         Terminate playback if the first file is being played.
 
+``playlist-play-index <integer|current|none>``
+    Start (or restart) playback of the given playlist index. In addition to the
+    0-based playlist entry index, it supports the following values:
+
+    <current>
+        The current playlist entry (as in ``playlist-current-pos``) will be
+        played again (unload and reload). If none is set, playback is stopped.
+        (In corner cases, ``playlist-current-pos`` can point to a playlist entry
+        even if playback is currently inactive,
+
+    <none>
+        Playback is stopped. If idle mode (``--idle``) is enabled, the player
+        will enter idle mode, otherwise it will exit.
+
+    This command is similar to ``loadfile`` in that it only manipulates the
+    state of what to play next, without waiting until the current file is
+    unloaded, and the next one is loaded.
+
+    Setting ``playlist-pos`` or similar properties can have a similar effect to
+    this command. However, it's more explicit, and guarantees that playback is
+    restarted if for example the new playlist entry is the same as the previous
+    one.
+
 ``loadfile <url> [<flags> [<options>]]``
-    Load the given file or URL and play it.
+    Load the given file or URL and play it. Technically, this is just a playlist
+    manipulation command (which either replaces the playlist or appends an entry
+    to it). Actual file loading happens independently. For example, a
+    ``loadfile`` command that replaces the current file with a new one returns
+    before the current file is stopped, and the new file even begins loading.
 
     Second argument:
 
@@ -317,8 +460,10 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
 
     The third argument is a list of options and values which should be set
     while the file is playing. It is of the form ``opt1=value1,opt2=value2,..``.
-    Not all options can be changed this way. Some options require a restart
-    of the player.
+    When using the client API, this can be a ``MPV_FORMAT_NODE_MAP`` (or a Lua
+    table), however the values themselves must be strings currently. These
+    options are set during playback, and restored to the previous value at end
+    of playback (see `Per-File Options`_).
 
 ``loadlist <url> [<flags>]``
     Load the given playlist file or URL (like ``--playlist``).
@@ -329,6 +474,10 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
         Stop playback and replace the internal playlist with the new one.
     <append>
         Append the new playlist at the end of the current internal playlist.
+    <append-play>
+        Append the new playlist, and if nothing is currently playing, start
+        playback. (Always starts with the new playlist, even if the internal
+        playlist was not empty before running this command.)
 
 ``playlist-clear``
     Clear the playlist, except the currently played file.
@@ -349,6 +498,12 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
 ``playlist-shuffle``
     Shuffle the playlist. This is similar to what is done on start if the
     ``--shuffle`` option is used.
+
+``playlist-unshuffle``
+    Attempt to revert the previous ``playlist-shuffle`` command. This works
+    only once (multiple successive ``playlist-unshuffle`` commands do nothing).
+    May not work correctly if new recursive playlists have been opened since
+    a ``playlist-shuffle`` command.
 
 ``run <command> [<arg1> [<arg2> [...]]]``
     Run the given command. Unlike in MPlayer/mplayer2 and earlier versions of
@@ -390,15 +545,15 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
         argument list.
 
         The first array entry is either an absolute path to the executable, or
-        a filename with no path components, in which case the ``PATH``
-        environment variable. On Unix, this is equivalent to ``posix_spawnp``
-        and ``execvp`` behavior.
+        a filename with no path components, in which case the executable is
+        searched in the directories in the ``PATH`` environment variable. On
+        Unix, this is equivalent to ``posix_spawnp`` and ``execvp`` behavior.
 
     ``playback_only`` (``MPV_FORMAT_FLAG``)
         Boolean indicating whether the process should be killed when playback
-        terminates (optional, default: yes). If enabled, stopping playback
-        will automatically kill the process, and you can't start it outside of
-        playback.
+        of the current playlist entry terminates (optional, default: true). If
+        enabled, stopping playback will automatically kill the process, and you
+        can't start it outside of playback.
 
     ``capture_size`` (``MPV_FORMAT_INT64``)
         Integer setting the maximum number of stdout plus stderr bytes that can
@@ -412,15 +567,47 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
     ``capture_stderr`` (``MPV_FORMAT_FLAG``)
         Same as ``capture_stdout``, but for stderr.
 
+    ``detach`` (``MPV_FORMAT_FLAG``)
+        Whether to run the process in detached mode (optional, default: no). In
+        this mode, the process is run in a new process session, and the command
+        does not wait for the process to terminate. If neither
+        ``capture_stdout`` nor ``capture_stderr`` have been set to true,
+        the command returns immediately after the new process has been started,
+        otherwise the command will read as long as the pipes are open.
+
+    ``env`` (``MPV_FORMAT_NODE_ARRAY[MPV_FORMAT_STRING]``)
+        Set a list of environment variables for the new process (default: empty).
+        If an empty list is passed, the environment of the mpv process is used
+        instead. (Unlike the underlying OS mechanisms, the mpv command cannot
+        start a process with empty environment. Fortunately, that is completely
+        useless.) The format of the list is as in the ``execle()`` syscall. Each
+        string item defines an environment variable as in ``NANME=VALUE``.
+
+        On Lua, you may use ``utils.get_env_list()`` to retrieve the current
+        environment if you e.g. simply want to add a new variable.
+
+    ``stdin_data`` (``MPV_FORMAT_STRING``)
+        Feed the given string to the new process' stdin. Since this is a string,
+        you cannot pass arbitrary binary data. If the process terminates or
+        closes the pipe before all data is written, the remaining data is
+        silently discarded. Probably does not work on win32.
+
+    ``passthrough_stdin`` (``MPV_FORMAT_FLAG``)
+        If enabled, wire the new process' stdin to mpv's stdin (default: no).
+        Before mpv 0.33.0, this argument did not exist, but the behavior was as
+        if this was set to true.
+
     The command returns the following result (as ``MPV_FORMAT_NODE_MAP``):
 
     ``status`` (``MPV_FORMAT_INT64``)
-        The raw exit status of the process. It will be negative on error. The
-        meaning of negative values is undefined, other than meaning error (and
-        does not necessarily correspond to OS low level exit status values).
+        Typically this is the process exit code (0 or positive) if the process
+        terminates normally, or negative for other errors (failed to start,
+        terminated by mpv, and others).  The meaning of negative values is
+        undefined, other than meaning error (and does not correspond to OS low
+        level exit status values).
 
-        On Windows, it can happen that a negative return value is returned
-        even if the process exits gracefully, because the win32 ``UINT`` exit
+        On Windows, it can happen that a negative return value is returned even
+        if the process terminates normally, because the win32 ``UINT`` exit
         code is assigned to an ``int`` variable before being set as ``int64_t``
         field in the result map. This might be fixed later.
 
@@ -431,35 +618,53 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
         Same as ``stdout``, but for stderr.
 
     ``error_string`` (``MPV_FORMAT_STRING``)
-        Empty string if the process exited gracefully. The string ``killed`` if
-        the process was terminated in an unusual way. The string ``init`` if the
-        process could not be started.
+        Empty string if the process terminated normally. The string ``killed``
+        if the process was terminated in an unusual way. The string ``init`` if
+        the process could not be started.
 
         On Windows, ``killed`` is only returned when the process has been
-        killed by mpv as a result of ``playback_only`` being set to ``yes``.
+        killed by mpv as a result of ``playback_only`` being set to true.
 
     ``killed_by_us`` (``MPV_FORMAT_FLAG``)
-        Set to ``yes`` if the process has been killed by mpv, for example as a
-        result of ``playback_only`` being set to ``yes``, aborting the command
-        (e.g. by ``mp.abort_async_command()``), or if the player is about to
-        exit.
+        Whether the process has been killed by mpv, for example as a result of
+        ``playback_only`` being set to true, aborting the command (e.g. by
+        ``mp.abort_async_command()``), or if the player is about to exit.
 
     Note that the command itself will always return success as long as the
     parameters are correct. Whether the process could be spawned or whether
     it was somehow killed or returned an error status has to be queried from
     the result value.
 
-    This command can be asynchronously aborted via API.
+    This command can be asynchronously aborted via API. Also see `Asynchronous
+    command details`_. Only the ``run`` command can start processes in a truly
+    detached way.
 
-    In all cases, the subprocess will be terminated on player exit. Also see
-    `Asynchronous command details`_. Only the ``run`` command can start
-    processes in a truly detached way.
+    .. note:: The subprocess will always be terminated on player exit if it
+              wasn't started in detached mode, even if ``playback_only`` is
+              false.
 
     .. admonition:: Warning
 
-        Don't forget to set the ``playback_only`` field if you want the command
-        run while the player is in idle mode, or if you don't want that end of
-        playback kills the command.
+        Don't forget to set the ``playback_only`` field to false if you want
+        the command to run while the player is in idle mode, or if you don't
+        want the end of playback to kill the command.
+
+    .. admonition:: Example
+
+        ::
+
+            local r = mp.command_native({
+                name = "subprocess",
+                playback_only = false,
+                capture_stdout = true,
+                args = {"cat", "/proc/cpuinfo"},
+            })
+            if r.status == 0 then
+                print("result: " .. r.stdout)
+            end
+
+        This is a fairly useless Lua example, which demonstrates how to run
+        a process in a blocking manner, and retrieving its stdout output.
 
 ``quit [<code>]``
     Exit the player. If an argument is given, it's used as process exit code.
@@ -506,15 +711,29 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
 
     This works by unloading and re-adding the subtitle track.
 
-``sub-step <skip>``
+``sub-step <skip> <flags>``
     Change subtitle timing such, that the subtitle event after the next
     ``<skip>`` subtitle events is displayed. ``<skip>`` can be negative to step
     backwards.
 
-``sub-seek <skip>``
+    Secondary argument:
+
+    primary (default)
+        Steps through the primary subtitles.
+    secondary
+        Steps through the secondary subtitles.
+
+``sub-seek <skip> <flags>``
     Seek to the next (skip set to 1) or the previous (skip set to -1) subtitle.
     This is similar to ``sub-step``, except that it seeks video and audio
     instead of adjusting the subtitle delay.
+
+    Secondary argument:
+
+    primary (default)
+        Seeks through the primary subtitles.
+    secondary
+        Seeks through the secondary subtitles.
 
     For embedded subtitles (like with Matroska), this works only with subtitle
     events that have already been displayed, or are within a short prefetch
@@ -561,10 +780,23 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
     Write the resume config file that the ``quit-watch-later`` command writes,
     but continue playback normally.
 
-``stop``
+``delete-watch-later-config [<filename>]``
+    Delete any existing resume config file that was written by
+    ``quit-watch-later`` or ``write-watch-later-config``. If a filename is
+    specified, then the deleted config is for that file; otherwise, it is the
+    same one as would be written by ``quit-watch-later`` or
+    ``write-watch-later-config`` in the current circumstance.
+
+``stop [<flags>]``
     Stop playback and clear playlist. With default settings, this is
     essentially like ``quit``. Useful for the client API: playback can be
     stopped without terminating the player.
+
+    The first argument is optional, and supports the following flags:
+
+    keep-playlist
+        Do not clear the playlist.
+
 
 ``mouse <x> <y> [<button> [<mode>]]``
     Send a mouse event with given coordinate (``<x>``, ``<y>``).
@@ -615,8 +847,11 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
 ``audio-reload [<id>]``
     Reload the given audio tracks. See ``sub-reload`` command.
 
-``video-add <url> [<flags> [<title> [<lang>]]]``
-    Load the given video file. See ``sub-add`` command.
+``video-add <url> [<flags> [<title> [<lang> [<albumart>]]]]``
+    Load the given video file. See ``sub-add`` command for common options.
+
+    ``albumart`` (``MPV_FORMAT_FLAG``)
+        If enabled, mpv will load the given video as album art.
 
 ``video-remove [<id>]``
     Remove the given video track. See ``sub-remove`` command.
@@ -625,9 +860,9 @@ Remember to quote string arguments in input.conf (see `Flat command syntax`_).
     Reload the given video tracks. See ``sub-reload`` command.
 
 ``rescan-external-files [<mode>]``
-    Rescan external files according to the current ``--sub-auto`` and
-    ``--audio-file-auto`` settings. This can be used to auto-load external
-    files *after* the file was loaded.
+    Rescan external files according to the current ``--sub-auto``,
+    ``--audio-file-auto`` and ``--cover-art-auto`` settings. This can be used
+    to auto-load external files *after* the file was loaded.
 
     The ``mode`` argument is one of the following:
 
@@ -649,6 +884,10 @@ Input Commands that are Possibly Subject to Change
 ``vf <operation> <value>``
     Change video filter chain.
 
+    The semantics are exactly the same as with option parsing (see
+    `VIDEO FILTERS`_). As such the text below is a redundant and incomplete
+    summary.
+
     The first argument decides what happens:
 
     <set>
@@ -658,8 +897,8 @@ Input Commands that are Possibly Subject to Change
         Append the new filter chain to the previous one.
 
     <toggle>
-        Check if the given filter (with the exact parameters) is already
-        in the video chain. If yes, remove the filter. If no, add the filter.
+        Check if the given filter (with the exact parameters) is already in the
+        video chain. If it is, remove the filter. If it isn't, add the filter.
         (If several filters are passed to the command, this is done for
         each filter.)
 
@@ -667,12 +906,15 @@ Input Commands that are Possibly Subject to Change
         without filter name and parameters as filter entry. This toggles the
         enable/disable flag.
 
+    <remove>
+        Like ``toggle``, but always remove the given filter from the chain.
+
     <del>
         Remove the given filters from the video chain. Unlike in the other
         cases, the second parameter is a comma separated list of filter names
         or integer indexes. ``0`` would denote the first filter. Negative
         indexes start from the last filter, and ``-1`` denotes the last
-        filter.
+        filter. Deprecated, use ``remove``.
 
     <clr>
         Remove all filters. Note that like the other sub-commands, this does
@@ -698,7 +940,7 @@ Input Commands that are Possibly Subject to Change
 
     .. admonition:: Example for input.conf
 
-        - ``a vf set flip`` turn video upside-down on the ``a`` key
+        - ``a vf set vflip`` turn the video upside-down on the ``a`` key
         - ``b vf set ""`` remove all video filters on ``b``
         - ``c vf toggle gradfun`` toggle debanding on ``c``
 
@@ -728,6 +970,8 @@ Input Commands that are Possibly Subject to Change
     list yourself when adding a second key binding for cycling backwards.
 
 ``enable-section <name> [<flags>]``
+    This command is deprecated, except for mpv-internal uses.
+
     Enable all key bindings in the named input section.
 
     The enabled input sections form a stack. Bindings in sections on the top of
@@ -750,9 +994,13 @@ Input Commands that are Possibly Subject to Change
         Same.
 
 ``disable-section <name>``
+    This command is deprecated, except for mpv-internal uses.
+
     Disable the named input section. Undoes ``enable-section``.
 
 ``define-section <name> <contents> [<flags>]``
+    This command is deprecated, except for mpv-internal uses.
+
     Create a named input section, or replace the contents of an already existing
     input section. The ``contents`` parameter uses the same syntax as the
     ``input.conf`` file (except that using the section syntax in it is not
@@ -851,6 +1099,115 @@ Input Commands that are Possibly Subject to Change
     Remove an overlay added with ``overlay-add`` and the same ID. Does nothing
     if no overlay with this ID exists.
 
+``osd-overlay``
+    Add/update/remove an OSD overlay.
+
+    (Although this sounds similar to ``overlay-add``, ``osd-overlay`` is for
+    text overlays, while ``overlay-add`` is for bitmaps. Maybe ``overlay-add``
+    will be merged into ``osd-overlay`` to remove this oddity.)
+
+    You can use this to add text overlays in ASS format. ASS has advanced
+    positioning and rendering tags, which can be used to render almost any kind
+    of vector graphics.
+
+    This command accepts the following parameters:
+
+    ``id``
+        Arbitrary integer that identifies the overlay. Multiple overlays can be
+        added by calling this command with different ``id`` parameters. Calling
+        this command with the same ``id`` replaces the previously set overlay.
+
+        There is a separate namespace for each libmpv client (i.e. IPC
+        connection, script), so IDs can be made up and assigned by the API user
+        without conflicting with other API users.
+
+        If the libmpv client is destroyed, all overlays associated with it are
+        also deleted. In particular, connecting via ``--input-ipc-server``,
+        adding an overlay, and disconnecting will remove the overlay immediately
+        again.
+
+    ``format``
+        String that gives the type of the overlay. Accepts the following values
+        (HTML rendering of this is broken, view the generated manpage instead,
+        or the raw RST source):
+
+        ``ass-events``
+            The ``data`` parameter is a string. The string is split on the
+            newline character. Every line is turned into the ``Text`` part of
+            a ``Dialogue`` ASS event. Timing is unused (but behavior of timing
+            dependent ASS tags may change in future mpv versions).
+
+            Note that it's better to put multiple lines into ``data``, instead
+            of adding multiple OSD overlays.
+
+            This provides 2 ASS ``Styles``. ``OSD`` contains the text style as
+            defined by the current ``--osd-...`` options. ``Default`` is
+            similar, and contains style that ``OSD`` would have if all options
+            were set to the default.
+
+            In addition, the ``res_x`` and ``res_y`` options specify the value
+            of the ASS ``PlayResX`` and ``PlayResY`` header fields. If ``res_y``
+            is set to 0, ``PlayResY`` is initialized to an arbitrary default
+            value (but note that the default for this command is 720, not 0).
+            If ``res_x`` is set to 0, ``PlayResX`` is set based on ``res_y``
+            such that a virtual ASS pixel has a square pixel aspect ratio.
+
+        ``none``
+            Special value that causes the overlay to be removed. Most parameters
+            other than ``id`` and ``format`` are mostly ignored.
+
+    ``data``
+        String defining the overlay contents according to the ``format``
+        parameter.
+
+    ``res_x``, ``res_y``
+        Used if ``format`` is set to ``ass-events`` (see description there).
+        Optional, defaults to 0/720.
+
+    ``z``
+        The Z order of the overlay. Optional, defaults to 0.
+
+        Note that Z order between different overlays of different formats is
+        static, and cannot be changed (currently, this means that bitmap
+        overlays added by ``overlay-add`` are always on top of the ASS overlays
+        added by ``osd-overlay``). In addition, the builtin OSD components are
+        always below any of the custom OSD. (This includes subtitles of any kind
+        as well as text rendered by ``show-text``.)
+
+        It's possible that future mpv versions will randomly change how Z order
+        between different OSD formats and builtin OSD is handled.
+
+    ``hidden``
+        If set to true, do not display this (default: false).
+
+    ``compute_bounds``
+        If set to true, attempt to determine bounds and write them to the
+        command's result value as ``x0``, ``x1``, ``y0``, ``y1`` rectangle
+        (default: false). If the rectangle is empty, not known, or somehow
+        degenerate, it is not set. ``x1``/``y1`` is the coordinate of the
+        bottom exclusive corner of the rectangle.
+
+        The result value may depend on the VO window size, and is based on the
+        last known window size at the time of the call. This means the results
+        may be different from what is actually rendered.
+
+        For ``ass-events``, the result rectangle is recomputed to ``PlayRes``
+        coordinates (``res_x``/``res_y``). If window size is not known, a
+        fallback is chosen.
+
+        You should be aware that this mechanism is very inefficient, as it
+        renders the full result, and then uses the bounding box of the rendered
+        bitmap list (even if ``hidden`` is set). It will flush various caches.
+        Its results also depend on the used libass version.
+
+        This feature is experimental, and may change in some way again.
+
+    .. note::
+
+        Always use named arguments (``mpv_command_node()``). Lua scripts should
+        use the ``mp.create_osd_overlay()`` helper instead of invoking this
+        command directly.
+
 ``script-message [<arg1> [<arg2> [...]]]``
     Send a message to all clients, and pass it the following list of arguments.
     What this message means, how many arguments it takes, and what the arguments
@@ -863,7 +1220,8 @@ Input Commands that are Possibly Subject to Change
 ``script-message-to <target> [<arg1> [<arg2> [...]]]``
     Same as ``script-message``, but send it only to the client named
     ``<target>``. Each client (scripts etc.) has a unique name. For example,
-    Lua scripts can get their name via ``mp.get_script_name()``.
+    Lua scripts can get their name via ``mp.get_script_name()``. Note that
+    client names only consist of alphanumeric characters and ``_``.
 
     This command has a variable number of arguments, and cannot be used with
     named arguments.
@@ -875,7 +1233,8 @@ Input Commands that are Possibly Subject to Change
     The argument is the name of the binding.
 
     It can optionally be prefixed with the name of the script, using ``/`` as
-    separator, e.g. ``script-binding scriptname/bindingname``.
+    separator, e.g. ``script-binding scriptname/bindingname``. Note that script
+    names only consist of alphanumeric characters and ``_``.
 
     For completeness, here is how this command works internally. The details
     could change any time. On any matching key event, ``script-message-to``
@@ -886,14 +1245,22 @@ Input Commands that are Possibly Subject to Change
     2. The name of the binding (as established above).
     3. The key state as string (see below).
     4. The key name (since mpv 0.15.0).
+    5. The text the key would produce, or empty string if not applicable.
 
-    The key state consists of 2 letters:
+    The 5th argument is only set if no modifiers are present (using the shift
+    key with a letter is normally not emitted as having a modifier, and results
+    in upper case text instead, but some backends may mess up).
+
+    The key state consists of 2 characters:
 
     1. One of ``d`` (key was pressed down), ``u`` (was released), ``r`` (key
        is still down, and was repeated; only if key repeat is enabled for this
        binding), ``p`` (key was pressed; happens if up/down can't be tracked).
     2. Whether the event originates from the mouse, either ``m`` (mouse button)
        or ``-`` (something else).
+
+    Future versions can add more arguments and more key state characters to
+    support more input peculiarities.
 
 ``ab-loop``
     Cycle through A-B loop states. The first command will set the ``A`` point
@@ -936,18 +1303,30 @@ Input Commands that are Possibly Subject to Change
 ``af-command <label> <command> <argument>``
     Same as ``vf-command``, but for audio filters.
 
-``apply-profile <name>``
+``apply-profile <name> [<mode>]``
     Apply the contents of a named profile. This is like using ``profile=name``
     in a config file, except you can map it to a key binding to change it at
     runtime.
 
-    There is no such thing as "unapplying" a profile - applying a profile
-    merely sets all option values listed within the profile.
+    The mode argument:
+
+    ``default``
+        Apply the profile. Default if the argument is omitted.
+
+    ``restore``
+        Restore options set by a previous ``apply-profile`` command for this
+        profile. Only works if the profile has ``profile-restore`` set to a
+        relevant mode. Prints a warning if nothing could be done. See
+        `Runtime profiles`_ for details.
 
 ``load-script <filename>``
     Load a script, similar to the ``--script`` option. Whether this waits for
     the script to finish initialization or not changed multiple times, and the
     future behavior is left undefined.
+
+    On success, returns a ``mpv_node`` with a ``client_id`` field set to the
+    return value of the ``mpv_client_id()`` API call of the newly created script
+    handle.
 
 ``change-list <name> <operation> <value>``
     This command changes list options as described in `List Options`_. The
@@ -1035,6 +1414,199 @@ Input Commands that are Possibly Subject to Change
 
 Undocumented commands: ``ao-reload`` (experimental/internal).
 
+List of events
+~~~~~~~~~~~~~~
+
+This is a partial list of events. This section describes what
+``mpv_event_to_node()`` returns, and which is what scripting APIs and the JSON
+IPC sees. Note that the C API has separate C-level declarations with
+``mpv_event``, which may be slightly different.
+
+Note that events are asynchronous: the player core continues running while
+events are delivered to scripts and other clients. In some cases, you can hooks
+to enforce synchronous execution.
+
+All events can have the following fields:
+
+``event``
+    Name as the event (as returned by ``mpv_event_name()``).
+
+``id``
+    The ``reply_userdata`` field (opaque user value). If ``reply_userdata`` is 0,
+    the field is not added.
+
+``error``
+    Set to an error string (as returned by ``mpv_error_string()``). This field
+    is missing if no error happened, or the event type does not report error.
+    Most events leave this unset.
+
+This list uses the event name field value, and the C API symbol in brackets:
+
+``start-file`` (``MPV_EVENT_START_FILE``)
+    Happens right before a new file is loaded. When you receive this, the
+    player is loading the file (or possibly already done with it).
+
+    This has the following fields:
+
+    ``playlist_entry_id``
+        Playlist entry ID of the file being loaded now.
+
+``end-file`` (``MPV_EVENT_END_FILE``)
+    Happens after a file was unloaded. Typically, the player will load the
+    next file right away, or quit if this was the last file.
+
+    The event has the following fields:
+
+    ``reason``
+        Has one of these values:
+
+        ``eof``
+            The file has ended. This can (but doesn't have to) include
+            incomplete files or broken network connections under
+            circumstances.
+
+        ``stop``
+            Playback was ended by a command.
+
+        ``quit``
+            Playback was ended by sending the quit command.
+
+        ``error``
+            An error happened. In this case, an ``error`` field is present with
+            the error string.
+
+        ``redirect``
+            Happens with playlists and similar. Details see
+            ``MPV_END_FILE_REASON_REDIRECT`` in the C API.
+
+        ``unknown``
+            Unknown. Normally doesn't happen, unless the Lua API is out of sync
+            with the C API. (Likewise, it could happen that your script gets
+            reason strings that did not exist yet at the time your script was
+            written.)
+
+    ``playlist_entry_id``
+        Playlist entry ID of the file that was being played or attempted to be
+        played. This has the same value as the ``playlist_entry_id`` field in the
+        corresponding ``start-file`` event.
+
+    ``file_error``
+        Set to mpv error string describing the approximate reason why playback
+        failed. Unset if no error known. (In Lua scripting, this value was set
+        on the ``error`` field directly. This is deprecated since mpv 0.33.0.
+        In the future, this ``error`` field will be unset for this specific
+        event.)
+
+    ``playlist_insert_id``
+        If loading ended, because the playlist entry to be played was for example
+        a playlist, and the current playlist entry is replaced with a number of
+        other entries. This may happen at least with MPV_END_FILE_REASON_REDIRECT
+        (other event types may use this for similar but different purposes in the
+        future). In this case, playlist_insert_id will be set to the playlist
+        entry ID of the first inserted entry, and playlist_insert_num_entries to
+        the total number of inserted playlist entries. Note this in this specific
+        case, the ID of the last inserted entry is playlist_insert_id+num-1.
+        Beware that depending on circumstances, you may observe the new playlist
+        entries before seeing the event (e.g. reading the "playlist" property or
+        getting a property change notification before receiving the event).
+        If this is 0 in the C API, this field isn't added.
+
+    ``playlist_insert_num_entries``
+        See playlist_insert_id. Only present if playlist_insert_id is present.
+
+``file-loaded``  (``MPV_EVENT_FILE_LOADED``)
+    Happens after a file was loaded and begins playback.
+
+``seek`` (``MPV_EVENT_SEEK``)
+    Happens on seeking. (This might include cases when the player seeks
+    internally, even without user interaction. This includes e.g. segment
+    changes when playing ordered chapters Matroska files.)
+
+``playback-restart`` (``MPV_EVENT_PLAYBACK_RESTART``)
+    Start of playback after seek or after file was loaded.
+
+``shutdown`` (``MPV_EVENT_SHUTDOWN``)
+    Sent when the player quits, and the script should terminate. Normally
+    handled automatically. See `Details on the script initialization and lifecycle`_.
+
+``log-message`` (``MPV_EVENT_LOG_MESSAGE``)
+    Receives messages enabled with ``mpv_request_log_messages()`` (Lua:
+    ``mp.enable_messages``).
+
+    This contains, in addition to the default event fields, the following
+    fields:
+
+    ``prefix``
+        The module prefix, identifies the sender of the message. This is what
+        the terminal player puts in front of the message text when using the
+        ``--v`` option, and is also what is used for ``--msg-level``.
+
+    ``level``
+        The log level as string. See ``msg.log`` for possible log level names.
+        Note that later versions of mpv might add new levels or remove
+        (undocumented) existing ones.
+
+    ``text``
+        The log message. The text will end with a newline character. Sometimes
+        it can contain multiple lines.
+
+    Keep in mind that these messages are meant to be hints for humans. You
+    should not parse them, and prefix/level/text of messages might change
+    any time.
+
+``hook``
+    The event has the following fields:
+
+    ``hook_id``
+        ID to pass to ``mpv_hook_continue()``. The Lua scripting wrapper
+        provides a better API around this with ``mp.add_hook()``.
+
+``get-property-reply`` (``MPV_EVENT_GET_PROPERTY_REPLY``)
+    See C API.
+
+``set-property-reply`` (``MPV_EVENT_SET_PROPERTY_REPLY``)
+    See C API.
+
+``command-reply`` (``MPV_EVENT_COMMAND_REPLY``)
+    This is one of the commands for which the ```error`` field is meaningful.
+
+    JSON IPC and Lua and possibly other backends treat this specially and may
+    not pass the actual event to the user. See C API.
+
+    The event has the following fields:
+
+    ``result``
+        The result (on success) of any ``mpv_node`` type, if any.
+
+``client-message`` (``MPV_EVENT_CLIENT_MESSAGE``)
+    Lua and possibly other backends treat this specially and may not pass the
+    actual event to the user.
+
+    The event has the following fields:
+
+    ``args``
+        Array of strings with the message data.
+
+``video-reconfig`` (``MPV_EVENT_VIDEO_RECONFIG``)
+    Happens on video output or filter reconfig.
+
+``audio-reconfig`` (``MPV_EVENT_AUDIO_RECONFIG``)
+    Happens on audio output or filter reconfig.
+
+``property-change`` (``MPV_EVENT_PROPERTY_CHANGE``)
+    Happens when a property that is being observed changes value.
+
+    The event has the following fields:
+
+    ``name``
+        The name of the property.
+
+    ``data``
+        The new value of the property.
+
+The following events also happen, but are deprecated: ``idle``, ``tick``
+Use ``mpv_observe_property()`` (Lua: ``mp.observe_property()``) instead.
+
 Hooks
 ~~~~~
 
@@ -1048,6 +1620,12 @@ the player freeze randomly. Basically, nobody should use this API.
 The C API is described in the header files. The Lua API is described in the
 Lua section.
 
+Before a hook is actually invoked on an API clients, it will attempt to return
+new values for all observed properties that were changed before the hook. This
+may make it easier for an application to set defined "barriers" between property
+change notifications by registering hooks. (That means these hooks will have an
+effect, even if you do nothing and make them continue immediately.)
+
 The following hooks are currently defined:
 
 ``on_load``
@@ -1059,12 +1637,17 @@ The following hooks are currently defined:
     ``file-local-options/<option name>``. The player will wait until all
     hooks are run.
 
+    Ordered after ``start-file`` and before ``playback-restart``.
+
 ``on_load_fail``
     Called after after a file has been opened, but failed to. This can be
     used to provide a fallback in case native demuxers failed to recognize
     the file, instead of always running before the native demuxers like
     ``on_load``. Demux will only be retried if ``stream-open-filename``
-    was changed.
+    was changed. If it fails again, this hook is _not_ called again, and
+    loading definitely fails.
+
+    Ordered after ``on_load``, and before ``playback-restart`` and ``end-file``.
 
 ``on_preloaded``
     Called after a file has been opened, and before tracks are selected and
@@ -1077,50 +1660,24 @@ The following hooks are currently defined:
     exactly can be done and not be done, and what information is available and
     what is not yet available yet, is all subject to change.
 
+    Ordered after ``on_load_fail`` etc. and before ``playback-restart``.
+
 ``on_unload``
     Run before closing a file, and before actually uninitializing
     everything. It's not possible to resume playback in this state.
 
-Legacy hook API
-~~~~~~~~~~~~~~~
+    Ordered before ``end-file``. Will also happen in the error case (then after
+    ``on_load_fail``).
 
-.. warning::
+``on_before_start_file``
+    Run before a ``start-file`` event is sent. (If any client changes the
+    current playlist entry, or sends a quit command to the player, the
+    corresponding event will not actually happen after the hook returns.)
+    Useful to drain property changes before a new file is loaded.
 
-    The legacy API is deprecated and will be removed soon.
-
-There are two special commands involved. Also, the client must listen for
-client messages (``MPV_EVENT_CLIENT_MESSAGE`` in the C API).
-
-``hook-add <hook-name> <id> <priority>``
-    Subscribe to the hook identified by the first argument (basically, the
-    name of event). The ``id`` argument is an arbitrary integer chosen by the
-    user. ``priority`` is used to sort all hook handlers globally across all
-    clients. Each client can register multiple hook handlers (even for the
-    same hook-name). Once the hook is registered, it cannot be unregistered.
-
-    When a specific event happens, all registered handlers are run serially.
-    This uses a protocol every client has to follow explicitly. When a hook
-    handler is run, a client message (``MPV_EVENT_CLIENT_MESSAGE``) is sent to
-    the client which registered the hook. This message has the following
-    arguments:
-
-    1. the string ``hook_run``
-    2. the ``id`` argument the hook was registered with as string (this can be
-       used to correctly handle multiple hooks registered by the same client,
-       as long as the ``id`` argument is unique in the client)
-    3. something undefined, used by the hook mechanism to track hook execution
-
-    Upon receiving this message, the client can handle the event. While doing
-    this, the player core will still react to requests, but playback will
-    typically be stopped.
-
-    When the client is done, it must continue the core's hook execution by
-    running the ``hook-ack`` command.
-
-``hook-ack <string>``
-    Run the next hook in the global chain of hooks. The argument is the 3rd
-    argument of the client message that starts hook execution for the
-    current client.
+``on_after_end_file``
+    Run after an ``end-file`` event. Useful to drain property changes after a
+    file has finished.
 
 Input Command Prefixes
 ----------------------
@@ -1151,7 +1708,9 @@ prefixes can be specified. They are separated by whitespace.
     This is the default for ``input.conf`` commands.
 ``repeatable``
     For some commands, keeping a key pressed doesn't run the command repeatedly.
-    This prefix forces enabling key repeat in any case.
+    This prefix forces enabling key repeat in any case. For a list of commands:
+    the first command determines the repeatability of the whole list (up to and
+    including version 0.33 - a list was always repeatable).
 ``async``
     Allow asynchronous execution (if possible). Note that only a few commands
     will support this (usually this is explicitly documented). Some commands
@@ -1261,9 +1820,13 @@ Property list
 .. note::
 
     Most options can be set as runtime via properties as well. Just remove the
-    leading ``--`` from the option name. These are not documented. Only
-    properties which do not exist as option with the same name, or which have
-    very different behavior from the options are documented below.
+    leading ``--`` from the option name. These are not documented below, see
+    `OPTIONS`_ instead. Only properties which do not exist as option with the
+    same name, or which have very different behavior from the options are
+    documented below.
+
+    Properties marked as (RW) are writeable, while those that aren't are
+    read-only.
 
 ``audio-speed-correction``, ``video-speed-correction``
     Factor multiplied with ``speed`` at which the player attempts to play the
@@ -1273,7 +1836,7 @@ Property list
     being ``(raw - 1) * 100`` for the given raw property value.
 
 ``display-sync-active``
-    Return whether ``--video-sync=display`` is actually active.
+    Whether ``--video-sync=display`` is actually active.
 
 ``filename``
     Currently played file, with path stripped. If this is an URL, try to undo
@@ -1304,6 +1867,9 @@ Property list
     .. note:: This is only an estimate. (It's computed from two unreliable
               quantities: fps and possibly rounded timestamps.)
 
+``pid``
+    Process-id of mpv.
+
 ``path``
     Full path of the currently played file. Usually this is exactly the same
     string you pass on the mpv command line or the ``loadfile`` command, even
@@ -1312,9 +1878,9 @@ Property list
     property.
 
 ``stream-open-filename``
-    The full path to the currently played media. This is different only from
-    ``path`` in special cases. In particular, if ``--ytdl=yes`` is used, and
-    the URL is detected by ``youtube-dl``, then the script will set this
+    The full path to the currently played media. This is different from
+    ``path`` only in special cases. In particular, if ``--ytdl=yes`` is used,
+    and the URL is detected by ``youtube-dl``, then the script will set this
     property to the actual media URL. This property should be set only during
     the ``on_load`` or ``on_load_fail`` hooks, otherwise it will have no effect
     (or may do something implementation defined in the future). The property is
@@ -1413,7 +1979,7 @@ Property list
     Remaining length of the file in seconds. Note that the file duration is not
     always exactly known, so this is an estimate.
 
-``audio-pts`` (R)
+``audio-pts``
     Current audio playback position in current file in seconds. Unlike time-pos,
     this updates more often than once per frame. For audio-only files, it is
     mostly equivalent to time-pos, while for video-only files this property is
@@ -1435,6 +2001,18 @@ Property list
     Current MKV edition number. Setting this property to a different value will
     restart playback. The number of the first edition is 0.
 
+    Before mpv 0.31.0, this showed the actual edition selected at runtime, if
+    you didn't set the option or property manually. With mpv 0.31.0 and later,
+    this strictly returns the user-set option or property value, and the
+    ``current-edition`` property was added to return the runtime selected
+    edition (this matters with ``--edition=auto``, the default).
+
+``current-edition``
+    Currently selected edition. This property is unavailable if no file is
+    loaded, or the file has no editions. (Matroska files make a difference
+    between having no editions and a single edition, which will be reflected by
+    the property, although in practice it does not matter.)
+
 ``chapters``
     Number of chapters.
 
@@ -1452,12 +2030,12 @@ Property list
         Number of editions. If there are no editions, this can be 0 or 1 (1
         if there's a useless dummy edition).
 
-    ``edition-list/N/id``
+    ``edition-list/N/id`` (RW)
         Edition ID as integer. Use this to set the ``edition`` property.
         Currently, this is the same as the edition index.
 
     ``edition-list/N/default``
-        ``yes`` if this is the default edition, ``no`` otherwise.
+        Whether this is the default edition.
 
     ``edition-list/N/title``
         Edition title as stored in the file. Not always available.
@@ -1544,24 +2122,26 @@ Property list
     Equivalent to ``vf-metadata/<filter-label>``, but for audio filters.
 
 ``idle-active``
-    Return ``yes`` if no file is loaded, but the player is staying around
+    Returns ``yes``/true if no file is loaded, but the player is staying around
     because of the ``--idle`` option.
 
     (Renamed from ``idle``.)
 
 ``core-idle``
-    Return ``yes`` if the playback core is paused, otherwise ``no``. This can
-    be different ``pause`` in special situations, such as when the player
-    pauses itself due to low network cache.
+    Whether the playback core is paused. This can differ from ``pause`` in
+    special situations, such as when the player pauses itself due to low
+    network cache.
 
-    This also returns ``yes`` if playback is restarting or if nothing is
-    playing at all. In other words, it's only ``no`` if there's actually
+    This also returns ``yes``/true if playback is restarting or if nothing is
+    playing at all. In other words, it's only ``no``/false if there's actually
     video playing. (Behavior since mpv 0.7.0.)
 
-``cache-speed`` (R)
+``cache-speed``
     Current I/O read speed between the cache and the lower layer (like network).
     This gives the number bytes per seconds over a 1 second window (using
     the type ``MPV_FORMAT_INT64`` for the client API).
+
+    This is the same as ``demuxer-cache-state/raw-input-rate``.
 
 ``demuxer-cache-duration``
     Approximate duration of video buffered in the demuxer, in seconds. The
@@ -1574,14 +2154,13 @@ Property list
     data in demuxer.
 
 ``demuxer-cache-idle``
-    Returns ``yes`` if the demuxer is idle, which means the demuxer cache is
-    filled to the requested amount, and is currently not reading more data.
+    Whether the demuxer is idle, which means that the demuxer cache is filled
+    to the requested amount, and is currently not reading more data.
 
 ``demuxer-cache-state``
-    Various undocumented or half-documented things.
-
     Each entry in ``seekable-ranges`` represents a region in the demuxer cache
-    that can be seeked to. If there are multiple demuxers active, this only
+    that can be seeked to, with a ``start`` and ``end`` fields containing the
+    respective timestamps. If there are multiple demuxers active, this only
     returns information about the "main" demuxer, but might be changed in
     future to return unified information about all demuxers. The ranges are in
     arbitrary order. Often, ranges will overlap for a bit, before being joined.
@@ -1596,8 +2175,8 @@ Property list
     points to the beginning of the stream (BOF). This implies you cannot seek
     before this position at all. ``eof-cached`` indicates whether the seek range
     with the highest timestamp points to the end of the stream (EOF). If both
-    ``bof-cached`` and ``eof-cached`` are set to ``yes``, and there's only 1
-    cache range, the entire stream is cached.
+    ``bof-cached`` and ``eof-cached`` are true, and there's only 1 cache range,
+    the entire stream is cached.
 
     ``fw-bytes`` is the number of bytes of packets buffered in the range
     starting from the current decoding position. This is a rough estimate
@@ -1606,7 +2185,19 @@ Property list
 
     ``file-cache-bytes`` is the number of bytes stored in the file cache. This
     includes all overhead, and possibly unused data (like pruned data). This
-    member is missing if the file cache is not active.
+    member is missing if the file cache wasn't enabled with
+    ``--cache-on-disk=yes``.
+
+    ``cache-end`` is ``demuxer-cache-time``. Missing if unavailable.
+
+    ``reader-pts`` is the approximate timestamp of the start of the buffered
+    range. Missing if unavailable.
+
+    ``cache-duration`` is ``demuxer-cache-duration``. Missing if unavailable.
+
+    ``raw-input-rate`` is the estimated input rate of the network layer (or any
+    other byte-oriented input layer) in bytes per second. May be inaccurate or
+    missing.
 
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
@@ -1623,56 +2214,59 @@ Property list
             "eof-cached"        MPV_FORMAT_FLAG
             "fw-bytes"          MPV_FORMAT_INT64
             "file-cache-bytes"  MPV_FORMAT_INT64
+            "cache-end"         MPV_FORMAT_DOUBLE
+            "reader-pts"        MPV_FORMAT_DOUBLE
+            "cache-duration"    MPV_FORMAT_DOUBLE
+            "raw-input-rate"    MPV_FORMAT_INT64
 
     Other fields (might be changed or removed in the future):
 
     ``eof``
-        True if the reader thread has hit the end of the file.
+        Whether the reader thread has hit the end of the file.
 
     ``underrun``
-        True if the reader thread could not satisfy a decoder's request for a
+        Whether the reader thread could not satisfy a decoder's request for a
         new packet.
 
     ``idle``
-        True if the thread is currently not reading.
+        Whether the thread is currently not reading.
 
     ``total-bytes``
         Sum of packet bytes (plus some overhead estimation) of the entire packet
         queue, including cached seekable ranges.
 
 ``demuxer-via-network``
-    Returns ``yes`` if the stream demuxed via the main demuxer is most likely
-    played via network. What constitutes "network" is not always clear, might
-    be used for other types of untrusted streams, could be wrong in certain
-    cases, and its definition might be changing. Also, external files (like
-    separate audio files or streams) do not influence the value of this
-    property (currently).
+    Whether the stream demuxed via the main demuxer is most likely played via
+    network. What constitutes "network" is not always clear, might be used for
+    other types of untrusted streams, could be wrong in certain cases, and its
+    definition might be changing. Also, external files (like separate audio
+    files or streams) do not influence the value of this property (currently).
 
-``demuxer-start-time`` (R)
-    Returns the start time reported by the demuxer in fractional seconds.
+``demuxer-start-time``
+    The start time reported by the demuxer in fractional seconds.
 
 ``paused-for-cache``
-    Returns ``yes`` when playback is paused because of waiting for the cache.
+    Whether playback is paused because of waiting for the cache.
 
 ``cache-buffering-state``
-    Return the percentage (0-100) of the cache fill status until the player
-    will unpause (related to ``paused-for-cache``).
+    The percentage (0-100) of the cache fill status until the player will
+    unpause (related to ``paused-for-cache``).
 
 ``eof-reached``
-    Returns ``yes`` if end of playback was reached, ``no`` otherwise. Note
-    that this is usually interesting only if ``--keep-open`` is enabled,
-    since otherwise the player will immediately play the next file (or exit
-    or enter idle mode), and in these cases the ``eof-reached`` property will
-    logically be cleared immediately after it's set.
+    Whether the end of playback was reached. Note that this is usually
+    interesting only if ``--keep-open`` is enabled, since otherwise the player
+    will immediately play the next file (or exit or enter idle mode), and in
+    these cases the ``eof-reached`` property will logically be cleared
+    immediately after it's set.
 
 ``seeking``
-    Returns ``yes`` if the player is currently seeking, or otherwise trying
-    to restart playback. (It's possible that it returns ``yes`` while a file
-    is loaded. This is because the same underlying code is used for seeking and
+    Whether the player is currently seeking, or otherwise trying to restart
+    playback. (It's possible that it returns ``yes``/true while a file is
+    loaded. This is because the same underlying code is used for seeking and
     resyncing.)
 
 ``mixer-active``
-    Return ``yes`` if the audio mixer is active, ``no`` otherwise.
+    Whether the audio mixer is active.
 
     This option is relatively useless. Before mpv 0.18.1, it could be used to
     infer behavior of the ``volume`` property.
@@ -1735,14 +2329,14 @@ Property list
     Same as ``audio-params``, but the format of the data written to the audio
     API.
 
-``colormatrix`` (R)
+``colormatrix``
     Redirects to ``video-params/colormatrix``. This parameter (as well as
     similar ones) can be overridden with the ``format`` video filter.
 
-``colormatrix-input-range`` (R)
+``colormatrix-input-range``
     See ``colormatrix``.
 
-``colormatrix-primaries`` (R)
+``colormatrix-primaries``
     See ``colormatrix``.
 
 ``hwdec`` (RW)
@@ -1758,8 +2352,8 @@ Property list
     this purpose.
 
 ``hwdec-current``
-    Return the current hardware decoding in use. If decoding is active, return
-    one of the values used by the ``hwdec`` option/property. ``no`` indicates
+    The current hardware decoding in use. If decoding is active, return one of
+    the values used by the ``hwdec`` option/property. ``no``/false indicates
     software decoding. If no decoder is loaded, the property is unavailable.
 
 ``hwdec-interop``
@@ -1796,15 +2390,14 @@ Property list
         The pixel format as string. This uses the same names as used in other
         places of mpv.
 
+    ``video-params/hw-pixelformat``
+        The underlying pixel format as string. This is relevant for some cases
+        of hardware decoding and unavailable otherwise.
+
     ``video-params/average-bpp``
         Average bits-per-pixel as integer. Subsampled planar formats use a
         different resolution, which is the reason this value can sometimes be
         odd or confusing. Can be unavailable with some formats.
-
-    ``video-params/plane-depth``
-        Bit depth for each color component as integer. This is only exposed
-        for planar or single-component formats, and is unavailable for other
-        formats.
 
     ``video-params/w``, ``video-params/h``
         Video size as integers, with no aspect correction applied.
@@ -1846,6 +2439,11 @@ Property list
         Source file stereo 3D mode. (See the ``format`` video filter's
         ``stereo-in`` option.)
 
+    ``video-params/alpha``
+        Alpha type. If the format has no alpha channel, this will be unavailable
+        (but in future releases, it could change to ``no``). If alpha is
+        present, this is set to ``straight`` or ``premul``.
+
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
     the following contents:
@@ -1854,6 +2452,7 @@ Property list
 
         MPV_FORMAT_NODE_MAP
             "pixelformat"       MPV_FORMAT_STRING
+            "hw-pixelformat"    MPV_FORMAT_STRING
             "w"                 MPV_FORMAT_INT64
             "h"                 MPV_FORMAT_INT64
             "dw"                MPV_FORMAT_INT64
@@ -1869,6 +2468,8 @@ Property list
             "chroma-location"   MPV_FORMAT_STRING
             "rotate"            MPV_FORMAT_INT64
             "stereo-in"         MPV_FORMAT_STRING
+            "average-bpp"       MPV_FORMAT_INT64
+            "alpha"             MPV_FORMAT_STRING
 
 ``dwidth``, ``dheight``
     Video display size. This is the video size after filters and aspect scaling
@@ -1896,12 +2497,20 @@ Property list
     redrawing and frame display being somewhat disconnected, and you might
     have to pause and force a redraw.
 
-    Sub-properties::
+    This has a number of sub-properties:
 
-        video-frame-info/picture-type
-        video-frame-info/interlaced
-        video-frame-info/tff
-        video-frame-info/repeat
+    ``video-frame-info/picture-type``
+        The type of the picture. It can be "I" (intra), "P" (predicted), "B"
+        (bi-dir predicted) or unavailable.
+
+    ``video-frame-info/interlaced``
+        Whether the content of the frame is interlaced.
+
+    ``video-frame-info/tff``
+        If the content is interlaced, whether the top field is displayed first.
+
+    ``video-frame-info/repeat``
+        Whether the frame must be delayed when decoding.
 
 ``container-fps``
     Container FPS. This can easily contain bogus values. For videos that use
@@ -1924,8 +2533,38 @@ Property list
     (or to be exact, the size the video filters output). ``2`` will set the
     double size, ``0.5`` halves the size.
 
-``window-minimized``
-    Return whether the video window is minimized or not.
+    Note that setting a value identical to its previous value will not resize
+    the window. That's because this property mirrors the ``window-scale``
+    option, and setting an option to its previous value is ignored. If this
+    value is set while the window is in a fullscreen, the multiplier is not
+    applied until the window is taken out of that state. Writing this property
+    to a maximized window can unmaximize the window depending on the OS and
+    window manager. If the window does not unmaximize, the multiplier will be
+    applied if the user unmaximizes the window later.
+
+    See ``current-window-scale`` for the value derived from the actual window
+    size.
+
+    Since mpv 0.31.0, this always returns the previously set value (or the
+    default value), instead of the value implied by the actual window size.
+    Before mpv 0.31.0, this returned what ``current-window-scale`` returns now,
+    after the window was created.
+
+``current-window-scale`` (RW)
+    The ``window-scale`` value calculated from the current window size. This
+    has the same value as ``window-scale`` if the window size was not changed
+    since setting the option, and the window size was not restricted in other
+    ways. If the window is fullscreened, this will return the scale value
+    calculated from the last non-fullscreen size of the window. The property
+    is unavailable if no video is active.
+
+    When setting this property in the fullscreen or maximized state, the behavior
+    is the same as window-scale. In all ther cases, setting the value of this
+    property will always resize the window. This does not affect the value of
+    ``window-scale``.
+
+``focused``
+    Whether the window has focus. Might not be supported by all VOs.
 
 ``display-names``
     Names of the displays that the mpv window covers. On X11, these
@@ -1936,20 +2575,36 @@ Property list
     Display Product Names as used in the System Information and only one display
     name is returned since a window can only be on one screen.
 
-``display-fps`` (RW)
+``display-fps``
     The refresh rate of the current display. Currently, this is the lowest FPS
     of any display covered by the video, as retrieved by the underlying system
     APIs (e.g. xrandr on X11). It is not the measured FPS. It's not necessarily
     available on all platforms. Note that any of the listed facts may change
     any time without a warning.
 
+    Writing to this property is deprecated. It has the same effect as writing to
+    ``override-display-fps``. Since mpv 0.31.0, this property is unavailable
+    if no display FPS was reported (e.g. if no video is active), while in older
+    versions, it returned the ``--display-fps`` option value.
+
 ``estimated-display-fps``
-    Only available if display-sync mode (as selected by ``--video-sync``) is
-    active. Returns the actual rate at which display refreshes seem to occur,
-    measured by system time.
+    The actual rate at which display refreshes seem to occur, measured by
+    system time. Only available if display-sync mode (as selected by
+    ``--video-sync``) is active.
 
 ``vsync-jitter``
     Estimated deviation factor of the vsync duration.
+
+``display-width``, ``display-height``
+    The current display's horizontal and vertical resolution in pixels. Whether
+    or not these values update as the mpv window changes displays depends on
+    the windowing backend. It may not be available on all platforms.
+
+``display-hidpi-scale``
+    The HiDPI scale factor as reported by the windowing backend. If no VO is
+    active, or if the VO does not report a value, this property is unavailable.
+    It may be saner to report an absolute DPI, however, this is the way HiDPI
+    support is implemented on most OS APIs. See also ``--hidpi-window-scale``.
 
 ``video-aspect`` (RW)
     Deprecated. This is tied to ``--video-aspect-override``, but always
@@ -1960,36 +2615,151 @@ Property list
 
 ``osd-width``, ``osd-height``
     Last known OSD width (can be 0). This is needed if you want to use the
-    ``overlay-add`` command. It gives you the actual OSD size, which can be
-    different from the window size in some cases.
+    ``overlay-add`` command. It gives you the actual OSD/window size (not
+    including decorations drawn by the OS window manager).
+
+    Alias to ``osd-dimensions/w`` and ``osd-dimensions/h``.
 
 ``osd-par``
     Last known OSD display pixel aspect (can be 0).
 
+    Alias to ``osd-dimensions/osd-par``.
+
+``osd-dimensions``
+    Last known OSD dimensions.
+
+    Has the following sub-properties (which can be read as ``MPV_FORMAT_NODE``
+    or Lua table with ``mp.get_property_native``):
+
+    ``osd-dimensions/w``
+        Size of the VO window in OSD render units (usually pixels, but may be
+        scaled pixels with VOs like ``xv``).
+
+    ``osd-dimensions/h``
+        Size of the VO window in OSD render units,
+
+    ``osd-dimensions/par``
+        Pixel aspect ratio of the OSD (usually 1).
+
+    ``osd-dimensions/aspect``
+        Display aspect ratio of the VO window. (Computing from the properties
+        above.)
+
+    ``osd-dimensions/mt``, ``osd-dimensions/mb``, ``osd-dimensions/ml``, ``osd-dimensions/mr``
+        OSD to video margins (top, bottom, left, right). This describes the
+        area into which the video is rendered.
+
+    Any of these properties may be unavailable or set to dummy values if the
+    VO window is not created or visible.
+
+``mouse-pos``
+    Read-only - last known mouse position, normalizd to OSD dimensions.
+
+    Has the following sub-properties (which can be read as ``MPV_FORMAT_NODE``
+    or Lua table with ``mp.get_property_native``):
+
+    ``mouse-pos/x``, ``mouse-pos/y``
+        Last known coordinates of the mouse pointer.
+
+    ``mouse-pos/hover``
+        Boolean - whether the mouse pointer hovers the video window. The
+        coordinates should be ignored when this value is false, because the
+        video backends update them only when the pointer hovers the window.
+
 ``sub-text``
-    Return the current subtitle text regardless of sub visibility.
-    Formatting is stripped. If the subtitle is not text-based
-    (i.e. DVD/BD subtitles), an empty string is returned.
+    The current subtitle text regardless of sub visibility. Formatting is
+    stripped. If the subtitle is not text-based (i.e. DVD/BD subtitles), an
+    empty string is returned.
 
     This property is experimental and might be removed in the future.
 
+``sub-text-ass``
+    Like ``sub-text``, but return the text in ASS format. Text subtitles in
+    other formats are converted. For native ASS subtitles, events that do
+    not contain any text (but vector drawings etc.) are not filtered out. If
+    multiple events match with the current playback time, they are concatenated
+    with line breaks. Contains only the "Text" part of the events.
+
+    This property is not enough to render ASS subtitles correctly, because ASS
+    header and per-event metadata are not returned. You likely need to do
+    further filtering on the returned string to make it useful.
+
+    This property is experimental and might be removed in the future.
+
+``secondary-sub-text``
+    Same as ``sub-text``, but for the secondary subtitles.
+
 ``sub-start``
-    Return the current subtitle start time (in seconds). If there's multiple
-    current subtitles, returns the first start time. If no current subtitle is
-    present null is returned instead.
+    The current subtitle start time (in seconds). If there's multiple current
+    subtitles, returns the first start time. If no current subtitle is present
+    null is returned instead.
+
+``secondary-sub-start``
+    Same as ``sub-start``, but for the secondary subtitles.
 
 ``sub-end``
-    Return the current subtitle start time (in seconds). If there's multiple
-    current subtitles, return the last end time. If no current subtitle is
-    present, or if it's present but has unknown or incorrect duration, null
-    is returned instead.
+    The current subtitle end time (in seconds). If there's multiple current
+    subtitles, return the last end time. If no current subtitle is present, or
+    if it's present but has unknown or incorrect duration, null is returned
+    instead.
+
+``secondary-sub-end``
+    Same as ``sub-end``, but for the secondary subtitles.
 
 ``playlist-pos`` (RW)
-    Current position on playlist. The first entry is on position 0. Writing
-    to the property will restart playback at the written entry.
+    Current position on playlist. The first entry is on position 0. Writing to
+    this property may start playback at the new position.
+
+    In some cases, this is not necessarily the currently playing file. See
+    explanation of ``current`` and ``playing`` flags in ``playlist``.
+
+    If there the playlist is empty, or if it's non-empty, but no entry is
+    "current", this property returns -1. Likewise, writing -1 will put the
+    player into idle mode (or exit playback if idle mode is not enabled). If an
+    out of range index is written to the property, this behaves as if writing -1.
+    (Before mpv 0.33.0, instead of returning -1, this property was unavailable
+    if no playlist entry was current.)
+
+    Writing the current value back to the property is subject to change.
+    Currently, it will restart playback of the playlist entry. But in the
+    future, writing the current value will be ignored. Use the
+    ``playlist-play-index`` command to get guaranteed behavior.
 
 ``playlist-pos-1`` (RW)
     Same as ``playlist-pos``, but 1-based.
+
+``playlist-current-pos`` (RW)
+    Index of the "current" item on playlist. This usually, but not necessarily,
+    the currently playing item (see ``playlist-playing-pos``). Depending on the
+    exact internal state of the player, it may refer to the playlist item to
+    play next, or the playlist item used to determine what to play next.
+
+    For reading, this is exactly the same as ``playlist-pos``.
+
+    For writing, this *only* sets the position of the "current" item, without
+    stopping playback of the current file (or starting playback, if this is done
+    in idle mode). Use -1 to remove the current flag.
+
+    This property is only vaguely useful. If set during playback, it will
+    typically cause the playlist entry *after* it to be played next. Another
+    possibly odd observable state is that if ``playlist-next`` is run during
+    playback, this property is set to the playlist entry to play next (unlike
+    the previous case). There is an internal flag that decides whether the
+    current playlist entry or the next one should be played, and this flag is
+    currently inaccessible for API users. (Whether this behavior will kept is
+    possibly subject to change.)
+
+``playlist-playing-pos``
+    Index of the "playing" item on playlist. A playlist item is "playing" if
+    it's being loaded, actually playing, or being unloaded. This property is set
+    during the ``MPV_EVENT_START_FILE`` (``start-file``) and the
+    ``MPV_EVENT_START_END`` (``end-file``) events. Outside of that, it returns
+    -1. If the playlist entry was somehow removed during playback, but playback
+    hasn't stopped yet, or is in progress of being stopped, it also returns -1.
+    (This can happen at least during state transitions.)
+
+    In the "playing" state, this is usually the same as ``playlist-pos``, except
+    during state changes, or if ``playlist-current-pos`` was written explicitly.
 
 ``playlist-count``
     Number of total playlist entries.
@@ -2007,17 +2777,24 @@ Property list
     ``playlist/N/filename``
         Filename of the Nth entry.
 
-    ``playlist/N/current``, ``playlist/N/playing``
-        ``yes`` if this entry is currently playing (or being loaded).
-        Unavailable or ``no`` otherwise. When changing files, ``current`` and
-        ``playing`` can be different, because the currently playing file hasn't
-        been unloaded yet; in this case, ``current`` refers to the new
-        selection. (Since mpv 0.7.0.)
+    ``playlist/N/playing``
+        ``yes``/true if the ``playlist-playing-pos`` property points to this
+        entry, ``no``/false or unavailable otherwise.
+
+    ``playlist/N/current``
+        ``yes``/true if the ``playlist-current-pos`` property points to this
+        entry, ``no``/false or unavailable otherwise.
 
     ``playlist/N/title``
         Name of the Nth entry. Only available if the playlist file contains
         such fields, and only if mpv's parser supports it for the given
         playlist format.
+
+    ``playlist/N/id``
+        Unique ID for this entry. This is an automatically assigned integer ID
+        that is unique for the entire life time of the current mpv core
+        instance. Other commands, events, etc. use this as ``playlist_entry_id``
+        fields.
 
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
@@ -2031,6 +2808,7 @@ Property list
                 "current"   MPV_FORMAT_FLAG (might be missing; since mpv 0.7.0)
                 "playing"   MPV_FORMAT_FLAG (same)
                 "title"     MPV_FORMAT_STRING (optional)
+                "id"        MPV_FORMAT_INT64
 
 ``track-list``
     List of audio/video/sub tracks, current entry marked. Currently, the raw
@@ -2050,7 +2828,11 @@ Property list
         String describing the media type. One of ``audio``, ``video``, ``sub``.
 
     ``track-list/N/src-id``
-        Track ID as used in the source file. Not always available.
+        Track ID as used in the source file. Not always available. (It is
+        missing if the format has no native ID, if the track is a pseudo-track
+        that does not exist in this way in the actual file, or if the format
+        is handled by libavformat, and the format was not whitelisted as having
+        track IDs.)
 
     ``track-list/N/title``
         Track title as it is stored in the file. Not always available.
@@ -2058,33 +2840,45 @@ Property list
     ``track-list/N/lang``
         Track language as identified by the file. Not always available.
 
+    ``track-list/N/image``
+        ``yes``/true if this is a video track that consists of a single
+        picture, ``no``/false or unavailable otherwise. The heuristic used to
+        determine if a stream is an image doesn't attempt to detect images in
+        codecs normally used for videos. Otherwise, it is reliable.
+
     ``track-list/N/albumart``
-        ``yes`` if this is a video track that consists of a single picture,
-        ``no`` or unavailable otherwise. This is used for video tracks that are
-        really attached pictures in audio files.
+        ``yes``/true if this is an image embedded in an audio file or external
+        cover art, ``no``/false or unavailable otherwise.
 
     ``track-list/N/default``
-        ``yes`` if the track has the default flag set in the file, ``no``
-        otherwise.
+        ``yes``/true if the track has the default flag set in the file,
+        ``no``/false or unavailable otherwise.
 
     ``track-list/N/forced``
-        ``yes`` if the track has the forced flag set in the file, ``no``
-        otherwise.
+        ``yes``/true if the track has the forced flag set in the file,
+        ``no``/false or unavailable otherwise.
 
     ``track-list/N/codec``
         The codec name used by this track, for example ``h264``. Unavailable
         in some rare cases.
 
     ``track-list/N/external``
-        ``yes`` if the track is an external file, ``no`` otherwise. This is
-        set for separate subtitle files.
+        ``yes``/true if the track is an external file, ``no``/false or
+        unavailable otherwise. This is set for separate subtitle files.
 
     ``track-list/N/external-filename``
         The filename if the track is from an external file, unavailable
         otherwise.
 
     ``track-list/N/selected``
-        ``yes`` if the track is currently decoded, ``no`` otherwise.
+        ``yes``/true if the track is currently decoded, ``no``/false or
+        unavailable otherwise.
+
+    ``track-list/N/main-selection``
+        It indicates the selection order of tracks for the same type.
+        If a track is not selected, or is selected by the ``--lavfi-complex``,
+        it is not available. For subtitle tracks, ``0`` represents the ``sid``,
+        and ``1`` represents the ``secondary-sid``.
 
     ``track-list/N/ff-index``
         The stream index as usually used by the FFmpeg utilities. Note that
@@ -2148,10 +2942,12 @@ Property list
                 "src-id"            MPV_FORMAT_INT64
                 "title"             MPV_FORMAT_STRING
                 "lang"              MPV_FORMAT_STRING
+                "image"             MPV_FORMAT_FLAG
                 "albumart"          MPV_FORMAT_FLAG
                 "default"           MPV_FORMAT_FLAG
                 "forced"            MPV_FORMAT_FLAG
                 "selected"          MPV_FORMAT_FLAG
+                "main-selection"    MPV_FORMAT_INT64
                 "external"          MPV_FORMAT_FLAG
                 "external-filename" MPV_FORMAT_STRING
                 "codec"             MPV_FORMAT_STRING
@@ -2171,6 +2967,19 @@ Property list
                 "replaygain-track-gain" MPV_FORMAT_DOUBLE
                 "replaygain-album-peak" MPV_FORMAT_DOUBLE
                 "replaygain-album-gain" MPV_FORMAT_DOUBLE
+
+``current-tracks/...``
+    This gives access to currently selected tracks. It redirects to the correct
+    entry in ``track-list``.
+
+    The following sub-entries are defined: ``video``, ``audio``, ``sub``,
+    ``sub2``
+
+    For example, ``current-tracks/audio/lang`` returns the current audio track's
+    language field (the same value as ``track-list/N/lang``).
+
+    If tracks of the requested type are selected via ``--lavfi-complex``, the
+    first one is returned.
 
 ``chapter-list``
     List of chapters, current entry marked. Currently, the raw property value
@@ -2220,20 +3029,20 @@ Property list
     It's also possible to write the property using this format.
 
 ``seekable``
-    Return whether it's generally possible to seek in the current file.
+    Whether it's generally possible to seek in the current file.
 
 ``partially-seekable``
-    Return ``yes`` if the current file is considered seekable, but only because
-    the cache is active. This means small relative seeks may be fine, but larger
-    seeks may fail anyway. Whether a seek will succeed or not is generally not
-    known in advance.
+    Whether the current file is considered seekable, but only because the cache
+    is active. This means small relative seeks may be fine, but larger seeks
+    may fail anyway. Whether a seek will succeed or not is generally not known
+    in advance.
 
-    If this property returns true, ``seekable`` will also return true.
+    If this property returns ``yes``/true, so will ``seekable``.
 
 ``playback-abort``
-    Return whether playback is stopped or is to be stopped. (Useful in obscure
-    situations like during ``on_load`` hook processing, when the user can
-    stop playback, but the script has to explicitly end processing.)
+    Whether playback is stopped or is to be stopped. (Useful in obscure
+    situations like during ``on_load`` hook processing, when the user can stop
+    playback, but the script has to explicitly end processing.)
 
 ``cursor-autohide`` (RW)
     See ``--cursor-autohide``. Setting this to a new value will always update
@@ -2254,20 +3063,21 @@ Property list
 
     .. admonition:: Example
 
-        - ``--osd-status-msg='This is ${osd-ass-cc/0}{\\b1}bold text'``
-        - ``show-text "This is ${osd-ass-cc/0}{\b1}bold text"``
+        - ``--osd-msg3='This is ${osd-ass-cc/0}{\\b1}bold text'``
+        - ``show-text "This is ${osd-ass-cc/0}{\\b1}bold text"``
 
     Any ASS override tags as understood by libass can be used.
 
     Note that you need to escape the ``\`` character, because the string is
-    processed for C escape sequences before passing it to the OSD code.
+    processed for C escape sequences before passing it to the OSD code. See
+    `Flat command syntax`_ for details.
 
     A list of tags can be found here: http://docs.aegisub.org/latest/ASS_Tags/
 
 ``vo-configured``
-    Return whether the VO is configured right now. Usually this corresponds to
-    whether the video window is visible. If the ``--force-window`` option is
-    used, this is usually always returns ``yes``.
+    Whether the VO is configured right now. Usually this corresponds to whether
+    the video window is visible. If the ``--force-window`` option is used, this
+    usually always returns ``yes``/true.
 
 ``vo-passes``
     Contains introspection about the VO's active render passes and their
@@ -2327,6 +3137,15 @@ Property list
     Note that directly accessing this structure via subkeys is not supported,
     the only access is through aforementioned ``MPV_FORMAT_NODE``.
 
+``perf-info``
+    Further performance data. Querying this property triggers internal
+    collection of some data, and may slow down the player. Each query will reset
+    some internal state. Property change notification doesn't and won't work.
+    All of this may change in the future, so don't use this. The builtin
+    ``stats`` script is supposed to be the only user; since it's bundled and
+    built with the source code, it can use knowledge of mpv internal to render
+    the information properly. See ``stats`` script description for some details.
+
 ``video-bitrate``, ``audio-bitrate``, ``sub-bitrate``
     Bitrate values calculated on the packet level. This works by dividing the
     bit size of all packets between two keyframes by their presentation
@@ -2360,9 +3179,9 @@ Property list
     These properties shouldn't be used anymore.
 
 ``audio-device-list``
-    Return the list of discovered audio devices. This is mostly for use with
-    the client API, and reflects what ``--audio-device=help`` with the command
-    line player returns.
+    The list of discovered audio devices. This is mostly for use with the
+    client API, and reflects what ``--audio-device=help`` with the command line
+    player returns.
 
     When querying the property with the client API using ``MPV_FORMAT_NODE``,
     or with Lua ``mp.get_property_native``, this will return a mpv_node with
@@ -2407,9 +3226,31 @@ Property list
 ``current-ao``
     Current audio output driver (name as used with ``--ao``).
 
+``shared-script-properties`` (RW)
+    This is a key/value map of arbitrary strings shared between scripts for
+    general use. The player itself does not use any data in it (although some
+    builtin scripts may). The property is not preserved across player restarts.
+
+    This is very primitive, inefficient, and annoying to use. It's a makeshift
+    solution which could go away any time (for example, when a better solution
+    becomes available). This is also why this property has an annoying name. You
+    should avoid using it, unless you absolutely have to.
+
+    Lua scripting has helpers starting with ``utils.shared_script_property_``.
+    They are undocumented because you should not use this property. If you still
+    think you must, you should use the helpers instead of the property directly.
+
+    You are supposed to use the ``change-list`` command to modify the contents.
+    Reading, modifying, and writing the property manually could data loss if two
+    scripts update different keys at the same time due to lack of
+    synchronization. The Lua helpers take care of this.
+
+    (There is no way to ensure synchronization if two scripts try to update the
+    same key at the same time.)
+
 ``working-directory``
-    Return the working directory of the mpv process. Can be useful for JSON IPC
-    users, because the command line player usually works with relative paths.
+    The working directory of the mpv process. Can be useful for JSON IPC users,
+    because the command line player usually works with relative paths.
 
 ``protocol-list``
     List of protocol prefixes potentially recognized by the player. They are
@@ -2454,32 +3295,40 @@ Property list
     List of available libavformat demuxers' names. This can be used to check
     for support for a specific format or use with ``--demuxer-lavf-format``.
 
+``input-key-list``
+    List of `Key names`_, same as output by ``--input-keylist``.
+
 ``mpv-version``
-    Return the mpv version/copyright string. Depending on how the binary was
-    built, it might contain either a release version, or just a git hash.
+    The mpv version/copyright string. Depending on how the binary was built, it
+    might contain either a release version, or just a git hash.
 
 ``mpv-configuration``
-    Return the configuration arguments which were passed to the build system
+    The configuration arguments which were passed to the build system
     (typically the way ``./waf configure ...`` was invoked).
 
 ``ffmpeg-version``
-    Return the contents of the ``av_version_info()`` API call. This is a string
-    which identifies the build in some way, either through a release version
-    number, or a git hash. This applies to Libav as well (the property is
-    still named the same.) This property is unavailable if mpv is linked against
-    older FFmpeg and Libav versions.
+    The contents of the ``av_version_info()`` API call. This is a string which
+    identifies the build in some way, either through a release version number,
+    or a git hash. This applies to Libav as well (the property is still named
+    the same.) This property is unavailable if mpv is linked against older
+    FFmpeg and Libav versions.
+
+``libass-version``
+    The value of ``ass_library_version()``. This is an integer, encoded in a
+    somewhat weird form (apparently "hex BCD"), indicating the release version
+    of the libass library linked to mpv.
 
 ``options/<name>`` (RW)
-    Read-only access to value of option ``--<name>``. Most options can be
-    changed at runtime by writing to this property. Note that many options
-    require reloading the file for changes to take effect. If there is an
-    equivalent property, prefer setting the property instead.
+    The value of option ``--<name>``. Most options can be changed at runtime by
+    writing to this property. Note that many options require reloading the file
+    for changes to take effect. If there is an equivalent property, prefer
+    setting the property instead.
 
     There shouldn't be any reason to access ``options/<name>`` instead of
     ``<name>``, except in situations in which the properties have different
     behavior or conflicting semantics.
 
-``file-local-options/<name>``
+``file-local-options/<name>`` (RW)
     Similar to ``options/<name>``, but when setting an option through this
     property, the option is reset to its old value once the current file has
     stopped playing. Trying to write an option while no file is playing (or
@@ -2497,19 +3346,19 @@ Property list
     sub-properties - they may change radically in the feature.
 
     ``option-info/<name>/name``
-        Returns the name of the option.
+        The name of the option.
 
     ``option-info/<name>/type``
-        Return the name of the option type, like ``String`` or ``Integer``.
-        For many complex types, this isn't very accurate.
+        The name of the option type, like ``String`` or ``Integer``. For many
+        complex types, this isn't very accurate.
 
     ``option-info/<name>/set-from-commandline``
-        Return ``yes`` if the option was set from the mpv command line,
-        ``no`` otherwise. What this is set to if the option is e.g. changed
-        at runtime is left undefined (meaning it could change in the future).
+        Whether the option was set from the mpv command line. What this is set
+        to if the option is e.g. changed at runtime is left undefined (meaning
+        it could change in the future).
 
     ``option-info/<name>/set-locally``
-        Return ``yes`` if the option was set per-file. This is the case with
+        Whether the option was set per-file. This is the case with
         automatically loaded profiles, file-dir configs, and other cases. It
         means the option value will be restored to the value before playback
         start when playback ends.
@@ -2530,15 +3379,69 @@ Property list
         available.
 
 ``property-list``
-    Return the list of top-level properties.
+    The list of top-level properties.
 
 ``profile-list``
-    Return the list of profiles and their contents. This is highly
-    implementation-specific, and may change any time. Currently, it returns
-    an array of options for each profile. Each option has a name and a value,
-    with the value currently always being a string. Note that the options array
-    is not a map, as order matters and duplicate entries are possible. Recursive
+    The list of profiles and their contents. This is highly
+    implementation-specific, and may change any time. Currently, it returns an
+    array of options for each profile. Each option has a name and a value, with
+    the value currently always being a string. Note that the options array is
+    not a map, as order matters and duplicate entries are possible. Recursive
     profiles are not expanded, and show up as special ``profile`` options.
+
+    The ``profile-restore`` field is currently missing if it holds the default
+    value (either because it was not set, or set explicitly to ``default``),
+    but in the future it might hold the value ``default``.
+
+``command-list``
+    The list of input commands. This returns an array of maps, where each map
+    node represents a command. This map currently only has a single entry:
+    ``name`` for the name of the command. (This property is supposed to be a
+    replacement for ``--input-cmdlist``. The option dumps some more
+    information, but it's a valid feature request to extend this property if
+    needed.)
+
+``input-bindings``
+    The list of current input key bindings. This returns an array of maps,
+    where each map node represents a binding for a single key/command. This map
+    has the following entries:
+
+    ``key``
+        The key name. This is normalized and may look slightly different from
+        how it was specified in the source (e.g. in input.conf).
+
+    ``cmd``
+        The command mapped to the key. (Currently, this is exactly the same
+        string as specified in the source, other than stripping whitespace and
+        comments. It's possible that it will be normalized in the future.)
+
+    ``is_weak``
+        If set to true, any existing and active user bindings will take priority.
+
+    ``owner``
+        If this entry exists, the name of the script (or similar) which added
+        this binding.
+
+    ``section``
+        Name of the section this binding is part of. This is a rarely used
+        mechanism. This entry may be removed or change meaning in the future.
+
+    ``priority``
+        A number. Bindings with a higher value are preferred over bindings
+        with a lower value. If the value is negative, this binding is inactive
+        and will not be triggered by input. Note that mpv does not use this
+        value internally, and matching of bindings may work slightly differently
+        in some cases. In addition, this value is dynamic and can change around
+        at runtime.
+
+    ``comment``
+        If available, the comment following the command on the same line. (For
+        example, the input.conf entry ``f cycle bla # toggle bla`` would
+        result in an entry with ``comment = "toggle bla", cmd = "cycle bla"``.)
+
+    This property is read-only, and change notification is not supported.
+    Currently, there is no mechanism to change key bindings at runtime, other
+    than scripts adding or removing their own bindings.
 
 Inconsistencies between options and properties
 ----------------------------------------------
@@ -2547,54 +3450,31 @@ You can access (almost) all options as properties, though there are some
 caveats with some properties (due to historical reasons):
 
 ``vid``, ``aid``, ``sid``
-    While playback is active, you can set existing tracks only. (The option
-    allows setting any track ID, and which tracks to enable is chosen at
-    loading time.)
+    While playback is active, these return the actually active tracks. For
+    example, if you set ``aid=5``, and the currently played file contains no
+    audio track with ID 5, the ``aid`` property will return ``no``.
 
-    Option changes at runtime are affected by this as well.
+    Before mpv 0.31.0, you could set existing tracks at runtime only.
 
 ``display-fps``
-    If a VO is created, this will return either the actual display FPS, or
-    an invalid value, instead of the option value.
+    This inconsistent behavior is deprecated. Post-deprecation, the reported
+    value and the option value are cleanly separated (``override-display-fps``
+    for the option value).
 
 ``vf``, ``af``
     If you set the properties during playback, and the filter chain fails to
-    reinitialize, the new value will be rejected. Setting the option or
-    setting the property outside of playback will always succeed/fail in the
-    same way. Also, there are no ``vf-add`` etc. properties, but you can use
-    the ``vf``/``af`` group of commands to achieve the same.
+    reinitialize, the option will be set, but the runtime filter chain does not
+    change. On the other hand, the next video to be played will fail, because
+    the initial filter chain cannot be created.
 
-    Option changes at runtime are affected by this as well.
-
-``edition``
-    While a file is loaded, the property will always return the effective
-    edition, and setting the ``auto`` value will show somewhat strange behavior
-    (the property eventually switching to whatever is the default edition).
+    This behavior changed in mpv 0.31.0. Before this, the new value was rejected
+    *iff* a video (for ``vf``) or an audio (for ``af``) track was active. If
+    playback was not active, the behavior was the same as the current one.
 
 ``playlist``
     The property is read-only and returns the current internal playlist. The
     option is for loading playlist during command line parsing. For client API
     uses, you should use the ``loadlist`` command instead.
-
-``window-scale``
-    Might verify the set value when setting while a window is created.
-
-``audio-file``, ``sub-file``, ``external-file``
-    These options/properties are actually lists of filenames. To make the
-    command-line interface easier, each ``--audio-file=...`` option appends
-    the full string to the internal list. However, when used as properties,
-    every time you set the property as a string the internal list will be
-    replaced with a single entry containing the string you set. ``,`` or other
-    separators are never used. You have to use ``MPV_FORMAT_NODE_ARRAY`` (or
-    corresponding API, e.g. ``mp.set_property_native()`` with a table in Lua)
-    to set multiple entries.
-
-    Strictly speaking, option access via API (e.g. ``mpv_set_option_string()``)
-    has the same problem, and it's only a difference between CLI/API.
-
-``playlist-pos``, ``chapter``
-    These properties behave different from the deprecated options with the same
-    names.
 
 ``profile``, ``include``
     These are write-only, and will perform actions as they are written to,
@@ -2618,8 +3498,11 @@ command is an exception and not a general rule.)
     ``i show-text "Filename: ${filename}"``
         shows the filename of the current file when pressing the ``i`` key
 
-Within ``input.conf``, property expansion can be inhibited by putting the
-``raw`` prefix in front of commands.
+Whether property expansion is enabled by default depends on which API is used
+(see `Flat command syntax`_, `Commands specified as arrays`_ and `Named
+arguments`_), but it can always be enabled with the ``expand-properties``
+prefix or disabled with the ``raw`` prefix, as described in `Input Command
+Prefixes`_.
 
 The following expansions are supported:
 

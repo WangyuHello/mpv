@@ -60,7 +60,7 @@ libavfilter bridge.
 .. note::
 
     To get a full list of available video filters, see ``--vf=help`` and
-    http://ffmpeg.org/ffmpeg-filters.html .
+    https://ffmpeg.org/ffmpeg-filters.html .
 
     Also, keep in mind that most actual filters are available via the ``lavfi``
     wrapper, which gives you access to most of libavfilter's filters. This
@@ -85,6 +85,9 @@ libavfilter bridge.
 Video filters are managed in lists. There are a few commands to manage the
 filter list.
 
+``--vf-append=filter``
+    Appends the filter given as arguments to the filter list.
+
 ``--vf-add=filter``
     Appends the filter given as arguments to the filter list. (Passing multiple
     filters is currently still possible, but deprecated.)
@@ -93,12 +96,24 @@ filter list.
     Prepends the filters given as arguments to the filter list. (Passing
     multiple filters is currently still possible, but deprecated.)
 
+``--vf-remove=filter``
+    Deletes the filter from the list. The filter can be either given the way it
+    was added (filter name and its full argument list), or by label (prefixed
+    with ``@``). Matching of filters works as follows: if either of the compared
+    filters has a label set, only the labels are compared. If none of the
+    filters have a label, the filter name, arguments, and argument order are
+    compared. (Passing multiple filters is currently still possible, but
+    deprecated.)
+
+``-vf-toggle=filter``
+    Add the given filter to the list if it was not present yet, or remove it
+    from the list if it was present. Matching of filters works as described in
+    ``--vf-remove``.
+
 ``--vf-del=filter``
-    Deletes the filter. The filter can even given the way it was added (filter
-    name and its full argument list), by label (prefixed with ``@``), or as
-    index number. Index numbers start at 0, negative numbers address the end of
-    the list (-1 is the last). (Passing multiple filters is currently still
-    possible, but deprecated.)
+    Sort of like ``--vf-remove``, but also accepts an index number. Index
+    numbers start at 0, negative numbers address the end of the list (-1 is the
+    last). Deprecated.
 
 ``--vf-clr``
     Completely empties the filter list.
@@ -293,9 +308,13 @@ Available mpv-only filters are:
        :709-1886:     Scene-referred using the BT709+BT1886 interaction
        :gamma1.2:     Scene-referred using a pure power OOTF (gamma=1.2)
 
+    ``<dolbyvision=yes|no>``
+        Whether or not to include Dolby Vision metadata (default: yes). If
+        disabled, any Dolby Vision metadata will be stripped from frames.
+
     ``<stereo-in>``
         Set the stereo mode the video is assumed to be encoded in. Use
-        ``--vf format:stereo-in=help`` to list all available modes. Check with
+        ``--vf=format:stereo-in=help`` to list all available modes. Check with
         the ``stereo3d`` filter documentation to see what the names mean.
 
     ``<stereo-out>``
@@ -306,6 +325,10 @@ Available mpv-only filters are:
         Set the rotation the video is assumed to be encoded with in degrees.
         The special value ``-1`` uses the input format.
 
+    ``<w>``, ``<h>``
+        If not 0, perform conversion to the given size. Ignored if
+        ``convert=yes`` is not set.
+
     ``<dw>``, ``<dh>``
         Set the display size. Note that setting the display size such that
         the video is scaled in both directions instead of just changing the
@@ -315,6 +338,18 @@ Available mpv-only filters are:
         Set the display aspect ratio of the video frame. This is a float,
         but values such as ``[16:9]`` can be passed too (``[...]`` for quoting
         to prevent the option parser from interpreting the ``:`` character).
+
+    ``<force-scaler=auto|zimg|sws>``
+        Force a specific scaler backend, if applicable. This is a debug option
+        and could go away any time.
+
+    ``<alpha=auto|straight|premul>``
+        Set the kind of alpha the video uses. Undefined effect if the image
+        format has no alpha channel (could be ignored or cause an error,
+        depending on how mpv internals evolve). Setting this may or may not
+        cause downstream image processing to treat alpha differently, depending
+        on support. With ``convert`` and zimg used, this will convert the alpha.
+        libswscale and other FFmpeg components completely ignore this.
 
 ``lavfi=graph[:sws-flags[:o=opts]]``
     Filter video using FFmpeg's libavfilter.
@@ -358,7 +393,7 @@ Available mpv-only filters are:
         option gives the flags which should be passed to libswscale. This
         option is numeric and takes a bit-wise combination of ``SWS_`` flags.
 
-        See ``http://git.videolan.org/?p=ffmpeg.git;a=blob;f=libswscale/swscale.h``.
+        See ``https://git.videolan.org/?p=ffmpeg.git;a=blob;f=libswscale/swscale.h``.
 
     ``<o>``
         Set AVFilterGraph options. These should be documented by FFmpeg.
@@ -567,7 +602,7 @@ Available mpv-only filters are:
 
     ``reversal-bug=<yes|no>``
         :no:  Use the API as it was interpreted by older Mesa drivers. While
-              this interpretation was more obvious and inuitive, it was
+              this interpretation was more obvious and intuitive, it was
               apparently wrong, and not shared by Intel driver developers.
         :yes: Use Intel interpretation of surface forward and backwards
               references (default). This is what Intel drivers and newer Mesa
@@ -707,6 +742,42 @@ Available mpv-only filters are:
         which leads to lost frames.
 
     ``print=yes|no``
-        Print computed fingerprints the the terminal (default: no). This is
+        Print computed fingerprints to the terminal (default: no). This is
         mostly for testing and such. Scripts should use ``vf-metadata`` to
         read information from this filter instead.
+
+``gpu=...``
+    Convert video to RGB using the OpenGL renderer normally used with
+    ``--vo=gpu``. This requires that the EGL implementation supports off-screen
+    rendering on the default display. (This is the case with Mesa.)
+
+    Sub-options:
+
+    ``w=<pixels>``, ``h=<pixels>``
+        Size of the output in pixels (default: 0). If not positive, this will
+        use the size of the first filtered input frame.
+
+    .. warning::
+
+        This is highly experimental. Performance is bad, and it will not work
+        everywhere in the first place. Some features are not supported.
+
+    .. warning::
+
+        This does not do OSD rendering. If you see OSD, then it has been
+        rendered by the VO backend. (Subtitles are rendered by the ``gpu``
+        filter, if possible.)
+
+    .. warning::
+
+        If you use this with encoding mode, keep in mind that encoding mode will
+        convert the RGB filter's output back to yuv420p in software, using the
+        configured software scaler. Using ``zimg`` might improve this, but in
+        any case it might go against your goals when using this filter.
+
+    .. warning::
+
+        Do not use this with ``--vo=gpu``. It will apply filtering twice, since
+        most ``--vo=gpu`` options are unconditionally applied to the ``gpu``
+        filter. There is no mechanism in mpv to prevent this.
+

@@ -631,6 +631,16 @@ static HRESULT create_swapchain_1_2(ID3D11Device *dev, IDXGIFactory2 *factory,
 
     bool is_headless = (opts->window == NULL); // true if is headless, thus hwnd is NULL
     if (flip || is_headless) {
+        // UNORDERED_ACCESS with FLIP_SEQUENTIAL seems to be buggy with
+        // Windows 7 drivers
+        if ((desc.BufferUsage & DXGI_USAGE_UNORDERED_ACCESS) &&
+            !IsWindows8OrGreater())
+        {
+            mp_verbose(log, "Disabling UNORDERED_ACCESS for flip-model "
+                            "swapchain backbuffers in Windows 7\n");
+            desc.BufferUsage &= ~DXGI_USAGE_UNORDERED_ACCESS;
+        }
+
         desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
         desc.BufferCount = opts->length;
     } else {

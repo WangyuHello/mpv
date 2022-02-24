@@ -428,7 +428,7 @@ static struct mp_filter *vf_d3d11vpp_create(struct mp_filter *parent,
     if (!info || !info->hwdec_devs)
         goto fail;
 
-    hwdec_devices_request_all(info->hwdec_devs);
+    hwdec_devices_request_for_img_fmt(info->hwdec_devs, IMGFMT_D3D11);
 
     struct mp_hwdec_ctx *hwctx =
         hwdec_devices_get_by_lavc(info->hwdec_devs, AV_HWDEVICE_TYPE_D3D11VA);
@@ -476,15 +476,15 @@ fail:
 
 #define OPT_BASE_STRUCT struct opts
 static const m_option_t vf_opts_fields[] = {
-    OPT_FLAG("deint", deint_enabled, 0),
-    OPT_FLAG("interlaced-only", interlaced_only, 0),
-    OPT_CHOICE("mode", mode, 0,
-        ({"blend", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_BLEND},
-         {"bob", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_BOB},
-         {"adaptive", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_ADAPTIVE},
-         {"mocomp", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_MOTION_COMPENSATION},
-         {"ivctc", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_INVERSE_TELECINE},
-         {"none", 0})),
+    {"deint", OPT_FLAG(deint_enabled)},
+    {"interlaced-only", OPT_FLAG(interlaced_only)},
+    {"mode", OPT_CHOICE(mode,
+        {"blend", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_BLEND},
+        {"bob", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_BOB},
+        {"adaptive", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_ADAPTIVE},
+        {"mocomp", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_DEINTERLACE_MOTION_COMPENSATION},
+        {"ivctc", D3D11_VIDEO_PROCESSOR_PROCESSOR_CAPS_INVERSE_TELECINE},
+        {"none", 0})},
     {0}
 };
 

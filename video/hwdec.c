@@ -13,7 +13,7 @@ struct mp_hwdec_devices {
     struct mp_hwdec_ctx **hwctxs;
     int num_hwctxs;
 
-    void (*load_api)(void *ctx);
+    void (*load_api)(void *ctx, int imgfmt);
     void *load_api_ctx;
 };
 
@@ -95,16 +95,16 @@ void hwdec_devices_remove(struct mp_hwdec_devices *devs, struct mp_hwdec_ctx *ct
 }
 
 void hwdec_devices_set_loader(struct mp_hwdec_devices *devs,
-    void (*load_api)(void *ctx), void *load_api_ctx)
+    void (*load_api)(void *ctx, int imgfmt), void *load_api_ctx)
 {
     devs->load_api = load_api;
     devs->load_api_ctx = load_api_ctx;
 }
 
-void hwdec_devices_request_all(struct mp_hwdec_devices *devs)
+void hwdec_devices_request_for_img_fmt(struct mp_hwdec_devices *devs, int imgfmt)
 {
     if (devs->load_api && !hwdec_devices_get_first(devs))
-        devs->load_api(devs->load_api_ctx);
+        devs->load_api(devs->load_api_ctx, imgfmt);
 }
 
 char *hwdec_devices_get_names(struct mp_hwdec_devices *devs)
@@ -119,6 +119,9 @@ char *hwdec_devices_get_names(struct mp_hwdec_devices *devs)
 }
 
 static const struct hwcontext_fns *const hwcontext_fns[] = {
+#if HAVE_CUDA_HWACCEL
+    &hwcontext_fns_cuda,
+#endif
 #if HAVE_D3D_HWACCEL
     &hwcontext_fns_d3d11,
 #endif

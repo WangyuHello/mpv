@@ -7,9 +7,9 @@ from waflib import Utils
 __all__ = [
     "check_pkg_config", "check_pkg_config_mixed", "check_pkg_config_mixed_all",
     "check_pkg_config_cflags", "check_cc", "check_statement", "check_libs",
-    "check_headers", "compose_checks", "check_true", "any_version",
+    "check_headers", "compose_checks", "any_check", "check_true", "any_version",
     "load_fragment", "check_stub", "check_ctx_vars", "check_program",
-    "check_pkg_config_datadir", "check_macos_sdk"]
+    "check_pkg_config_datadir", "check_macos_sdk", "check_preprocessor"]
 
 any_version = None
 
@@ -45,6 +45,23 @@ def check_libs(libs, function):
             if function(ctx, dependency_identifier, **kwargs):
                 return True
         return False
+    return fn
+
+def check_preprocessor(header, expression, **kw_ext):
+    def fn(ctx, dependency_identifier, **kw):
+        headers = header
+        if not isinstance(headers, list):
+            headers = [header]
+        hs = "\n".join(["#include <{0}>".format(h) for h in headers])
+        fragment = ("{0}\n"
+                    "#if !({1})\n#error\n#endif\n"
+                    "int main(int argc, char **argv)\n"
+                    "{{ return 0; }}").format(hs, expression)
+        opts = __merge_options__(dependency_identifier,
+                                 {'fragment':fragment},
+                                 __define_options__(dependency_identifier),
+                                 kw_ext, kw)
+        return ctx.check_cc(**_filter_cc_arguments(ctx, opts))
     return fn
 
 def check_statement(header, statement, **kw_ext):
@@ -135,7 +152,7 @@ def _check_pkg_config(_dyn_libs, _pkgc_args, *args, **kw_ext):
 
 def check_headers(*headers, **kw_ext):
     def undef_others(ctx, headers, found):
-        not_found_hs = set(headers) - set([found])
+        not_found_hs = set(headers) - {found}
         for not_found_h in not_found_hs:
             ctx.undefine(inflector.define_key(not_found_h))
 
@@ -178,6 +195,11 @@ def check_stub(ctx, dependency_identifier):
 def compose_checks(*checks):
     def fn(ctx, dependency_identifier):
         return all([check(ctx, dependency_identifier) for check in checks])
+    return fn
+
+def any_check(*checks):
+    def fn(ctx, dependency_identifier):
+        return any(check(ctx, dependency_identifier) for check in checks)
     return fn
 
 def load_fragment(fragment):

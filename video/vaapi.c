@@ -38,7 +38,7 @@ struct vaapi_opts {
 #define OPT_BASE_STRUCT struct vaapi_opts
 const struct m_sub_options vaapi_conf = {
     .opts = (const struct m_option[]) {
-        OPT_STRING("device", path, 0),
+        {"device", OPT_STRING(path)},
         {0},
     },
     .defaults = &(const struct vaapi_opts) {
@@ -70,7 +70,7 @@ static void va_error_callback(void *context, const char *msg)
 
 static void va_info_callback(void *context, const char *msg)
 {
-    va_message_callback(context, msg, MSGL_V);
+    va_message_callback(context, msg, MSGL_DEBUG);
 }
 
 static void free_device_ref(struct AVHWDeviceContext *hwctx)
@@ -109,10 +109,8 @@ struct mp_vaapi_ctx *va_initialize(VADisplay *display, struct mp_log *plog,
     hwctx->free = free_device_ref;
     hwctx->user_opaque = res;
 
-#if VA_CHECK_VERSION(1, 0, 0)
     vaSetErrorCallback(display, va_error_callback, res);
     vaSetInfoCallback(display,  va_info_callback,  res);
-#endif
 
     int major, minor;
     int status = vaInitialize(display, &major, &minor);
@@ -228,7 +226,7 @@ static void drm_create(VADisplay **out_display, void **out_native_ctx,
     struct va_native_display_drm *ctx = talloc_ptrtype(NULL, ctx);
     ctx->drm_fd = drm_fd;
     *out_display = vaGetDisplayDRM(drm_fd);
-    if (out_display) {
+    if (*out_display) {
         *out_native_ctx = ctx;
         return;
     }

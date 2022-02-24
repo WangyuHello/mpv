@@ -39,9 +39,7 @@ void demux_packet_unref_contents(struct demux_packet *dp)
 {
     if (dp->avpacket) {
         assert(!dp->is_cached);
-        av_packet_unref(dp->avpacket);
-        talloc_free(dp->avpacket);
-        dp->avpacket = NULL;
+        av_packet_free(&dp->avpacket);
         dp->buffer = NULL;
         dp->len = 0;
     }
@@ -70,11 +68,12 @@ struct demux_packet *new_demux_packet_from_avpacket(struct AVPacket *avpkt)
         .start = MP_NOPTS_VALUE,
         .end = MP_NOPTS_VALUE,
         .stream = -1,
-        .avpacket = talloc_zero(dp, AVPacket),
+        .avpacket = av_packet_alloc(),
     };
-    av_init_packet(dp->avpacket);
     int r = -1;
-    if (avpkt->data) {
+    if (!dp->avpacket) {
+        // error
+    } else if (avpkt->data) {
         // We hope that this function won't need/access AVPacket input padding,
         // because otherwise new_demux_packet_from() wouldn't work.
         r = av_packet_ref(dp->avpacket, avpkt);
@@ -82,7 +81,6 @@ struct demux_packet *new_demux_packet_from_avpacket(struct AVPacket *avpkt)
         r = av_new_packet(dp->avpacket, avpkt->size);
     }
     if (r < 0) {
-        *dp->avpacket = (AVPacket){0};
         talloc_free(dp);
         return NULL;
     }
@@ -198,7 +196,6 @@ size_t demux_packet_estimate_total_size(struct demux_packet *dp)
 
 int demux_packet_set_padding(struct demux_packet *dp, int start, int end)
 {
-#if LIBAVCODEC_VERSION_MICRO >= 100
     if (!start && !end)
         return 0;
     if (!dp->avpacket)
@@ -209,14 +206,12 @@ int demux_packet_set_padding(struct demux_packet *dp, int start, int end)
 
     AV_WL32(p + 0, start);
     AV_WL32(p + 4, end);
-#endif
     return 0;
 }
 
 int demux_packet_add_blockadditional(struct demux_packet *dp, uint64_t id,
                                      void *data, size_t size)
 {
-#if LIBAVCODEC_VERSION_MICRO >= 100
     if (!dp->avpacket)
         return -1;
     uint8_t *sd =  av_packet_new_side_data(dp->avpacket,
@@ -227,6 +222,5 @@ int demux_packet_add_blockadditional(struct demux_packet *dp, uint64_t id,
     AV_WB64(sd, id);
     if (size > 0)
         memcpy(sd + 8, data, size);
-#endif
     return 0;
 }

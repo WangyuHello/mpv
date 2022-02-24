@@ -34,6 +34,7 @@
 #include "input/keycodes.h"
 #include "input/input.h"
 #include "common/msg.h"
+#include "options/m_config.h"
 #include "options/options.h"
 
 #include "osdep/timer.h"
@@ -61,7 +62,7 @@ const struct formatmap_entry formats[] = {
     {SDL_PIXELFORMAT_RGBX8888, IMGFMT_RGB0, 0}, // has no alpha -> bad for OSD
     {SDL_PIXELFORMAT_BGR888, IMGFMT_0BGR, 0}, // BGR888 means XBGR8888
     {SDL_PIXELFORMAT_BGRX8888, IMGFMT_BGR0, 0}, // has no alpha -> bad for OSD
-    {SDL_PIXELFORMAT_ARGB8888, IMGFMT_ARGB, 1}, // matches SUBBITMAP_RGBA
+    {SDL_PIXELFORMAT_ARGB8888, IMGFMT_ARGB, 1}, // matches SUBBITMAP_BGRA
     {SDL_PIXELFORMAT_RGBA8888, IMGFMT_RGBA, 1},
     {SDL_PIXELFORMAT_ABGR8888, IMGFMT_ABGR, 1},
     {SDL_PIXELFORMAT_BGRA8888, IMGFMT_BGRA, 1},
@@ -70,7 +71,7 @@ const struct formatmap_entry formats[] = {
     {SDL_PIXELFORMAT_RGBX8888, IMGFMT_0BGR, 0}, // has no alpha -> bad for OSD
     {SDL_PIXELFORMAT_BGR888, IMGFMT_RGB0, 0}, // BGR888 means XBGR8888
     {SDL_PIXELFORMAT_BGRX8888, IMGFMT_0RGB, 0}, // has no alpha -> bad for OSD
-    {SDL_PIXELFORMAT_ARGB8888, IMGFMT_BGRA, 1}, // matches SUBBITMAP_RGBA
+    {SDL_PIXELFORMAT_ARGB8888, IMGFMT_BGRA, 1}, // matches SUBBITMAP_BGRA
     {SDL_PIXELFORMAT_RGBA8888, IMGFMT_ABGR, 1},
     {SDL_PIXELFORMAT_ABGR8888, IMGFMT_RGBA, 1},
     {SDL_PIXELFORMAT_BGRA8888, IMGFMT_ARGB, 1},
@@ -189,6 +190,7 @@ struct priv {
     double osd_pts;
     Uint32 wakeup_event;
     bool screensaver_enabled;
+    struct m_config_cache *opts_cache;
 
     // options
     int allow_sw;
@@ -399,7 +401,8 @@ static inline void set_screensaver(bool enabled)
 static void set_fullscreen(struct vo *vo)
 {
     struct priv *vc = vo->priv;
-    int fs = vo->opts->fullscreen;
+    struct mp_vo_opts *opts = vc->opts_cache->opts;
+    int fs = opts->fullscreen;
     SDL_bool prev_screensaver_state = SDL_IsScreenSaverEnabled();
 
     Uint32 fs_flag;
@@ -797,7 +800,7 @@ static void draw_osd(struct vo *vo)
     struct priv *vc = vo->priv;
 
     static const bool osdformats[SUBBITMAP_COUNT] = {
-        [SUBBITMAP_RGBA] = true,
+        [SUBBITMAP_BGRA] = true,
     };
 
     osd_draw(vo->osd, vc->osd_res, vc->osd_pts, 0, osdformats, draw_osd_cb, vo);
@@ -811,6 +814,8 @@ static int preinit(struct vo *vo)
         MP_ERR(vo, "Another component is using SDL already.\n");
         return -1;
     }
+
+    vc->opts_cache = m_config_cache_alloc(vc, vo->global, &vo_sub_opts);
 
     // predefine SDL defaults (SDL env vars shall override)
     SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "1",
@@ -927,9 +932,15 @@ static int control(struct vo *vo, uint32_t request, void *data)
     struct priv *vc = vo->priv;
 
     switch (request) {
-    case VOCTRL_FULLSCREEN:
-        set_fullscreen(vo);
+    case VOCTRL_VO_OPTS_CHANGED: {
+        void *opt;
+        while (m_config_cache_get_next_changed(vc->opts_cache, &opt)) {
+            struct mp_vo_opts *opts = vc->opts_cache->opts;
+            if (&opts->fullscreen == opt)
+                set_fullscreen(vo);
+        }
         return 1;
+    }
     case VOCTRL_REDRAW_FRAME:
         draw_image(vo, NULL);
         return 1;
@@ -969,9 +980,9 @@ const struct vo_driver video_out_sdl = {
         .screensaver_enabled = false,
     },
     .options = (const struct m_option []){
-        OPT_FLAG("sw", allow_sw, 0),
-        OPT_FLAG("switch-mode", switch_mode, 0),
-        OPT_FLAG("vsync", vsync, 0),
+        {"sw", OPT_FLAG(allow_sw)},
+        {"switch-mode", OPT_FLAG(switch_mode)},
+        {"vsync", OPT_FLAG(vsync)},
         {NULL}
     },
     .preinit = preinit,

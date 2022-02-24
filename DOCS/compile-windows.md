@@ -22,7 +22,7 @@ When cross-compiling, you have to run mpv's configure with these arguments:
 DEST_OS=win32 TARGET=i686-w64-mingw32 ./waf configure
 ```
 
-[MXE](http://mxe.cc) makes it very easy to bootstrap a complete MingGW-w64
+[MXE](https://mxe.cc) makes it very easy to bootstrap a complete MingGW-w64
 environment from a Linux machine. See a working example below.
 
 Alternatively, you can try [mingw-w64-cmake](https://github.com/lachs0r/mingw-w64-cmake),
@@ -38,7 +38,7 @@ Example with MXE
 #
 # Refer to
 #
-#    http://mxe.cc/#requirements
+#    https://mxe.cc/#requirements
 #
 # Scroll down for disto/OS-specific instructions to install them.
 
@@ -68,7 +68,7 @@ echo "MXE_TARGETS := i686-w64-mingw32.static" >> settings.mk
 # Build required packages. The following provide a minimum required to build
 # a reasonable mpv binary (though not an absolute minimum).
 
-make gcc ffmpeg libass jpeg lua
+make gcc ffmpeg libass jpeg lua luajit
 
 # Add MXE binaries to $PATH
 export PATH=/opt/mxe/usr/bin/:$PATH
@@ -168,8 +168,12 @@ Or, compile and install both libmpv and mpv:
 Linking libmpv with MSVC programs
 ---------------------------------
 
-You can build C++ programs in Visual Studio and link them with libmpv. To do
-this, you need a Visual Studio which supports ``stdint.h`` (recent ones do),
+mpv/libmpv cannot be built with Visual Studio (Microsoft is too incompetent to
+support C99/C11 properly and/or hates open source and Linux too much to
+seriously do it). But you can build C++ programs in Visual Studio and link them
+with a libmpv built with MinGW.
+
+To do this, you need a Visual Studio which supports ``stdint.h`` (recent ones do),
 and you need to create a import library for the mpv DLL:
 
 ```bash
