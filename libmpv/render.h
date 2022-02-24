@@ -348,6 +348,23 @@ typedef enum mpv_render_param_type {
     */
     MPV_RENDER_PARAM_DRM_DISPLAY_V2 = 16,
     /**
+     * Use to init libmpv_dxgi fake render backend. Data type should be 
+     * "mpv_dxgi_init_param" defined in render_dxgi header file.
+     * 
+     * The libmpv_dxgi is only used with vo_d3d11_headless. When using headless
+     * d3d11, vo will create the D3D11Device and Swapchain, and try to pass out
+     * the pointer of two by what API user (you) set in this param.
+     * 
+     * Noted that NULL pointer will be ignored, but a pointer to invalid address
+     * WILL cause errors. It's YOUR responsibility to keep the pointer valid.
+     */
+    MPV_RENDER_PARAM_DXGI_INIT_PARAM = 17,
+    /**
+     * Use to update swapchain render size. Data type should be
+     * "mpv_dxgi_render_param" defined in render_dxgi header file.
+     */
+    MPV_RENDER_PARAM_DXGI_RENDER_PARAM = 18,
+    /**
      * MPV_RENDER_API_TYPE_SW only: rendering target surface size, mandatory.
      * Valid for MPV_RENDER_API_TYPE_SW & mpv_render_context_render().
      * Type: int[2] (e.g.: int s[2] = {w, h}; param.data = &s[0];)
@@ -356,7 +373,7 @@ typedef enum mpv_render_param_type {
      * the video gets scaled and black bars are added if the video size or
      * aspect ratio mismatches with the target size.
      */
-    MPV_RENDER_PARAM_SW_SIZE = 17,
+    MPV_RENDER_PARAM_SW_SIZE = 19,
     /**
      * MPV_RENDER_API_TYPE_SW only: rendering target surface pixel format,
      * mandatory.
@@ -381,7 +398,7 @@ typedef enum mpv_render_param_type {
      *      plane, and is supported as conversion output. It is not a good idea
      *      to rely on any of these. Their semantics and handling could change.
      */
-    MPV_RENDER_PARAM_SW_FORMAT = 18,
+    MPV_RENDER_PARAM_SW_FORMAT = 20,
     /**
      * MPV_RENDER_API_TYPE_SW only: rendering target surface bytes per line,
      * mandatory.
@@ -402,7 +419,7 @@ typedef enum mpv_render_param_type {
      * possible on platforms which do not support unaligned accesses (either
      * through normal memory access or aligned SIMD memory access instructions).
      */
-    MPV_RENDER_PARAM_SW_STRIDE = 19,
+    MPV_RENDER_PARAM_SW_STRIDE = 21,
     /*
      * MPV_RENDER_API_TYPE_SW only: rendering target surface pixel data pointer,
      * mandatory.
@@ -420,7 +437,7 @@ typedef enum mpv_render_param_type {
      *
      * See MPV_RENDER_PARAM_SW_STRIDE for alignment requirements.
      */
-    MPV_RENDER_PARAM_SW_POINTER = 20,
+    MPV_RENDER_PARAM_SW_POINTER = 22,
 } mpv_render_param_type;
 
 /**
@@ -465,6 +482,7 @@ typedef struct mpv_render_param {
  */
 // See render_gl.h
 #define MPV_RENDER_API_TYPE_OPENGL "opengl"
+#define MPV_RENDER_API_TYPE_DXGI "dxgi"
 // See section "Software renderer"
 #define MPV_RENDER_API_TYPE_SW "sw"
 

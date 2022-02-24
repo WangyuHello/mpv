@@ -26,6 +26,7 @@
 #include "video/out/w32_common.h"
 #include "context.h"
 #include "ra_d3d11.h"
+#include "headless_helper.h"
 
 static int d3d11_validate_adapter(struct mp_log *log,
                                   const struct m_option *opt,
@@ -108,6 +109,8 @@ struct priv {
     int64_t last_sync_qpc_time;
     int64_t vsync_duration_qpc;
     int64_t last_submit_qpc;
+
+    bool is_headless; // true if use headless mode
 };
 
 static int d3d11_validate_adapter(struct mp_log *log,
@@ -182,7 +185,10 @@ static bool resize(struct ra_ctx *ctx)
 
 static bool d3d11_reconfig(struct ra_ctx *ctx)
 {
-    vo_w32_config(ctx->vo);
+    struct priv* p = ctx->priv;
+    if (!p->is_headless) {
+        vo_w32_config(ctx->vo);
+    }
     return resize(ctx);
 }
 
@@ -378,47 +384,53 @@ static bool d3d11_set_fullscreen(struct ra_ctx *ctx)
 
 static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg)
 {
-    struct priv *p = ctx->priv;
+    // TODO: ignore if headless
+    struct priv* p = ctx->priv;
     int ret = -1;
-    bool fullscreen_switch_needed = false;
+    if (p->is_headless) {
+        ret = d3d11_headless_control(ctx->vo, events, request, arg);
+    }
+    else {
+        bool fullscreen_switch_needed = false;
 
-    switch (request) {
-    case VOCTRL_VO_OPTS_CHANGED: {
-        void *changed_option;
+        switch (request) {
+        case VOCTRL_VO_OPTS_CHANGED: {
+            void *changed_option;
 
-        while (m_config_cache_get_next_changed(p->vo_opts_cache,
-                                               &changed_option))
-        {
-            struct mp_vo_opts *vo_opts = p->vo_opts_cache->opts;
+            while (m_config_cache_get_next_changed(p->vo_opts_cache,
+                                                   &changed_option))
+            {
+                struct mp_vo_opts *vo_opts = p->vo_opts_cache->opts;
 
-            if (changed_option == &vo_opts->fullscreen) {
-                fullscreen_switch_needed = true;
+                if (changed_option == &vo_opts->fullscreen) {
+                    fullscreen_switch_needed = true;
+                }
             }
+
+            break;
+        }
+        default:
+            break;
         }
 
-        break;
-    }
-    default:
-        break;
-    }
+        // if leaving full screen, handle d3d11 stuff first, then general
+        // windowing
+        if (fullscreen_switch_needed && !p->vo_opts->fullscreen) {
+            if (!d3d11_set_fullscreen(ctx))
+                return VO_FALSE;
 
-    // if leaving full screen, handle d3d11 stuff first, then general
-    // windowing
-    if (fullscreen_switch_needed && !p->vo_opts->fullscreen) {
-        if (!d3d11_set_fullscreen(ctx))
-            return VO_FALSE;
+            fullscreen_switch_needed = false;
+        }
 
-        fullscreen_switch_needed = false;
-    }
+        ret = vo_w32_control(ctx->vo, events, request, arg);
 
-    ret = vo_w32_control(ctx->vo, events, request, arg);
+        // if entering full screen, handle d3d11 after general windowing stuff
+        if (fullscreen_switch_needed && p->vo_opts->fullscreen) {
+            if (!d3d11_set_fullscreen(ctx))
+                return VO_FALSE;
 
-    // if entering full screen, handle d3d11 after general windowing stuff
-    if (fullscreen_switch_needed && p->vo_opts->fullscreen) {
-        if (!d3d11_set_fullscreen(ctx))
-            return VO_FALSE;
-
-        fullscreen_switch_needed = false;
+            fullscreen_switch_needed = false;
+        }
     }
 
     if (*events & VO_EVENT_RESIZE) {
@@ -438,7 +450,9 @@ static void d3d11_uninit(struct ra_ctx *ctx)
     if (ctx->ra)
         ra_tex_free(ctx->ra, &p->backbuffer);
     SAFE_RELEASE(p->swapchain);
-    vo_w32_uninit(ctx->vo);
+    if (!p->is_headless) {
+        vo_w32_uninit(ctx->vo);
+    }
     SAFE_RELEASE(p->device);
 
     // Destory the RA last to prevent objects we hold from showing up in D3D's
@@ -457,7 +471,12 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
-    struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
+    if (ctx->priv == NULL) {
+        // not headless mode
+        ctx->priv = talloc_zero(ctx, struct priv);
+        ((struct priv*)(ctx->priv))->is_headless = false;
+    }
+    struct priv* p = ctx->priv;
     p->opts_cache = m_config_cache_alloc(ctx, ctx->global, &d3d11_conf);
     p->opts = p->opts_cache->opts;
 
@@ -490,7 +509,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!ctx->ra)
         goto error;
 
-    if (!vo_w32_init(ctx->vo))
+    if (!p->is_headless && !vo_w32_init(ctx->vo))
         goto error;
 
     UINT usage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
@@ -501,7 +520,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
     }
 
     struct d3d11_swapchain_opts scopts = {
-        .window = vo_w32_hwnd(ctx->vo),
+        .window = p->is_headless ? NULL : vo_w32_hwnd(ctx->vo),
         .width = ctx->vo->dwidth,
         .height = ctx->vo->dheight,
         .format = p->opts->output_format,
@@ -520,11 +539,21 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!p->backbuffer)
         goto error;
 
+    // pass out the device and swapchain
+    libmpv_dxgi_dev_out(p->device);
+    libmpv_dxgi_swc_out(p->swapchain);
     return true;
 
 error:
     d3d11_uninit(ctx);
     return false;
+}
+
+
+static bool d3d11_headless_init(struct ra_ctx* ctx) {
+    struct priv* p = ctx->priv = talloc_zero(ctx, struct priv);
+    p->is_headless = true;
+    return d3d11_init(ctx);
 }
 
 IDXGISwapChain *ra_d3d11_ctx_get_swapchain(struct ra_ctx *ra)
@@ -546,4 +575,13 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
     .control  = d3d11_control,
     .init     = d3d11_init,
     .uninit   = d3d11_uninit,
+};
+
+const struct ra_ctx_fns ra_ctx_d3d11_headless = {
+    .type = "d3d11_headless",
+    .name = "d3d11_headless",
+    .reconfig = d3d11_reconfig,
+    .control = d3d11_control,
+    .init = d3d11_headless_init,
+    .uninit = d3d11_uninit,
 };
