@@ -338,20 +338,20 @@ int mpv_render_context_render(mpv_render_context *ctx, mpv_render_param *params)
     int do_render =
         !GET_MPV_RENDER_PARAM(params, MPV_RENDER_PARAM_SKIP_RENDERING, int, 0);
 
-    printf("Debug1");
+    printf("Debug1\r\n");
 
     if (do_render) {
         int vp_w, vp_h;
         int err = ctx->renderer->fns->get_target_size(ctx->renderer, params,
                                                     &vp_w, &vp_h);
 
-        printf("Debug2 %d", err);
+        printf("Debug2 %d\r\n", err);
         if (err < 0) {
             pthread_mutex_unlock(&ctx->lock);
             return err;
         }
 
-        printf("Debug3 w: %d, h: %d", vp_w, vp_h);
+        printf("Debug3 w: %d, h: %d\r\n", vp_w, vp_h);
         if (ctx->vo && (ctx->vp_w != vp_w || ctx->vp_h != vp_h ||
                         ctx->need_resize))
         {
@@ -410,9 +410,12 @@ int mpv_render_context_render(mpv_render_context *ctx, mpv_render_param *params)
     MP_STATS(ctx, "glcb-render");
 
     int err = 0;
+    printf("Debug4 %d\r\n", err);
 
     if (do_render)
         err = ctx->renderer->fns->render(ctx->renderer, params, frame);
+    
+    printf("Debug5 %d\r\n", err);
 
     if (frame != &dummy)
         talloc_free(frame);
@@ -420,12 +423,14 @@ int mpv_render_context_render(mpv_render_context *ctx, mpv_render_param *params)
     if (GET_MPV_RENDER_PARAM(params, MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME,
                              int, 1))
     {
+        printf("Debug6 block\r\n", err);
         pthread_mutex_lock(&ctx->lock);
         while (wait_present_count > ctx->present_count)
             pthread_cond_wait(&ctx->video_wait, &ctx->lock);
         pthread_mutex_unlock(&ctx->lock);
     }
 
+    printf("Debug7 %d\r\n", err);
     return err;
 }
 
