@@ -273,7 +273,68 @@ static bool d3d11_get_mp_csp(DXGI_COLOR_SPACE_TYPE csp,
     return true;
 }
 
+// Compute the overlay area of two rectangles, A and B.
+// (ax1, ay1) = left-top coordinates of A; (ax2, ay2) = right-bottom coordinates of A
+// (bx1, by1) = left-top coordinates of B; (bx2, by2) = right-bottom coordinates of B
+static inline int ComputeIntersectionArea(int ax1, int ay1, int ax2, int ay2, int bx1, int by1, int bx2, int by2)
+{
+    return max(0, min(ax2, bx2) - max(ax1, bx1)) * max(0, min(ay2, by2) - max(ay1, by1));
+}
+
+static bool query_best_output(struct mp_log *log,
+                              RECT bounds,
+                              IDXGIAdapter1 *adapter,
+                              IDXGIOutput **output)
+{
+    UINT i = 0;
+    IDXGIOutput *currentOutput = NULL;
+    IDXGIOutput *bestOutput = NULL;
+    int bestIntersectArea = -1;
+
+    while (IDXGIAdapter1_EnumOutputs(adapter, i, &currentOutput) != DXGI_ERROR_NOT_FOUND)
+    {
+        // Get the retangle bounds of the app window
+        int ax1 = bounds.left;
+        int ay1 = bounds.top;
+        int ax2 = bounds.right;
+        int ay2 = bounds.bottom;
+
+        // Get the rectangle bounds of current output
+        DXGI_OUTPUT_DESC desc;
+        HRESULT hr = IDXGIOutput_GetDesc(currentOutput, &desc);
+        if (FAILED(hr)) {
+            mp_err(log, "Failed to query output information: %s\n",
+                mp_HRESULT_to_str(hr));
+            goto done;
+        }
+        RECT r = desc.DesktopCoordinates;
+        int bx1 = r.left;
+        int by1 = r.top;
+        int bx2 = r.right;
+        int by2 = r.bottom;
+
+        // Compute the intersection
+        int intersectArea = ComputeIntersectionArea(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2);
+        if (intersectArea > bestIntersectArea)
+        {
+            bestOutput = currentOutput;
+            bestIntersectArea = intersectArea;
+        }
+
+        i++;
+    }
+
+    *output = bestOutput;
+    return true;
+done:
+    SAFE_RELEASE(currentOutput);
+    SAFE_RELEASE(bestOutput);
+    return false;
+}
+
 static bool query_output_format_and_colorspace(struct mp_log *log,
+                                               struct d3d11_swapchain_opts *opts,
+                                               IDXGIAdapter1 *adapter,
                                                IDXGISwapChain *swapchain,
                                                DXGI_FORMAT *out_fmt,
                                                DXGI_COLOR_SPACE_TYPE *out_cspace)
@@ -283,19 +344,29 @@ static bool query_output_format_and_colorspace(struct mp_log *log,
     DXGI_OUTPUT_DESC1 desc = { 0 };
     char *monitor_name = NULL;
     bool success = false;
+    HRESULT hr;
 
     if (!out_fmt || !out_cspace)
         return false;
 
-    HRESULT hr = IDXGISwapChain_GetContainingOutput(swapchain, &output);
-    if (FAILED(hr)) {
-        mp_err(log, "Failed to get swap chain's containing output: %s!\n",
-               mp_HRESULT_to_str(hr));
-        goto done;
+    if (opts->composition)
+    {
+        query_best_output(log, opts->bounds, adapter, &output);
     }
+    else
+    {
+        hr = IDXGISwapChain_GetContainingOutput(swapchain, &output);
 
+        if (FAILED(hr)) {
+            mp_err(log, "Failed to get swap chain's containing output: %s!\n",
+                mp_HRESULT_to_str(hr));
+            goto done;
+        }
+    }
+    
     hr = IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6,
-                                    (void**)&output6);
+                                            (void**)&output6);
+
     if (FAILED(hr)) {
         // point where systems older than Windows 10 would fail,
         // thus utilizing error log level only with windows 10+
@@ -665,6 +736,61 @@ done:
     return hr;
 }
 
+static HRESULT create_swapchain_1_2_comp(ID3D11Device *dev, IDXGIFactory2 *factory,
+                                    struct mp_log *log,
+                                    struct d3d11_swapchain_opts *opts,
+                                    bool flip, DXGI_FORMAT format,
+                                    IDXGISwapChain **swapchain_out)
+{
+    IDXGISwapChain *swapchain = NULL;
+    IDXGISwapChain1 *swapchain1 = NULL;
+    HRESULT hr;
+
+    DXGI_SWAP_CHAIN_DESC1 desc = {
+        .Width = opts->width ? opts->width : 1,
+        .Height = opts->height ? opts->height : 1,
+        .Format = format,
+        .SampleDesc = { .Count = 1 },
+        .BufferUsage = opts->usage,
+        .Scaling = DXGI_SCALING_STRETCH,
+    };
+
+    if (flip) {
+        // UNORDERED_ACCESS with FLIP_SEQUENTIAL seems to be buggy with
+        // Windows 7 drivers
+        if ((desc.BufferUsage & DXGI_USAGE_UNORDERED_ACCESS) &&
+            !IsWindows8OrGreater())
+        {
+            mp_verbose(log, "Disabling UNORDERED_ACCESS for flip-model "
+                            "swapchain backbuffers in Windows 7\n");
+            desc.BufferUsage &= ~DXGI_USAGE_UNORDERED_ACCESS;
+        }
+
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        desc.BufferCount = opts->length;
+    } else {
+        desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        desc.BufferCount = 1;
+    }
+
+    hr = IDXGIFactory2_CreateSwapChainForComposition(factory, (IUnknown*)dev,
+        &desc, NULL, &swapchain1);
+    if (FAILED(hr))
+        goto done;
+    hr = IDXGISwapChain1_QueryInterface(swapchain1, &IID_IDXGISwapChain,
+                                        (void**)&swapchain);
+    if (FAILED(hr))
+        goto done;
+
+    *swapchain_out = swapchain;
+    swapchain = NULL;
+
+done:
+    SAFE_RELEASE(swapchain1);
+    SAFE_RELEASE(swapchain);
+    return hr;
+}
+
 static HRESULT create_swapchain_1_1(ID3D11Device *dev, IDXGIFactory1 *factory,
                                     struct mp_log *log,
                                     struct d3d11_swapchain_opts *opts,
@@ -778,6 +904,8 @@ done:
 
 static bool configure_created_swapchain(struct mp_log *log,
                                         IDXGISwapChain *swapchain,
+                                        struct d3d11_swapchain_opts *opts,
+                                        IDXGIAdapter1 *adapter,
                                         DXGI_FORMAT requested_format,
                                         DXGI_COLOR_SPACE_TYPE requested_csp,
                                         struct mp_colorspace *configured_csp)
@@ -791,7 +919,7 @@ static bool configure_created_swapchain(struct mp_log *log,
     struct mp_colorspace mp_csp = { 0 };
     bool mp_csp_mapped = false;
 
-    query_output_format_and_colorspace(log, swapchain,
+    query_output_format_and_colorspace(log, opts, adapter, swapchain,
                                        &probed_format,
                                        &probed_colorspace);
 
@@ -892,8 +1020,16 @@ bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,
     do {
         if (factory2) {
             // Create a DXGI 1.2+ (Windows 8+) swap chain if possible
-            hr = create_swapchain_1_2(dev, factory2, log, opts, flip,
-                                      DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            if(opts->composition) {
+                mp_info(log, "Create composition swapchain, width: %d, height: %d\n", opts->width, opts->height);
+                hr = create_swapchain_1_2_comp(dev, factory2, log, opts, flip,
+                                        DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            } else {
+                mp_info(log, "Create hwnd swapchain\n");
+                hr = create_swapchain_1_2(dev, factory2, log, opts, flip,
+                                        DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            }
+
         } else {
             // Fall back to DXGI 1.1 (Windows 7)
             hr = create_swapchain_1_1(dev, factory, log, opts,
@@ -925,7 +1061,7 @@ bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,
         mp_verbose(log, "Using DXGI 1.1\n");
     }
 
-    configure_created_swapchain(log, swapchain, opts->format,
+    configure_created_swapchain(log, swapchain, opts, adapter, opts->format,
                                 opts->color_space,
                                 opts->configured_csp);
 

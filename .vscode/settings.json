@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "libmpv.h": "c",
+        "w32_common.h": "c",
+        "spirv.h": "c",
+        "d3d11_helpers.h": "c",
+        "context.h": "c"
+    }
+}

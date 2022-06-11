@@ -51,6 +51,7 @@
 #endif
 
 #if HAVE_D3D11
+
 static bool d3d11_pl_init(struct vo *vo, struct gpu_ctx *ctx,
                           struct ra_ctx_opts *ctx_opts)
 {
@@ -71,7 +72,7 @@ static bool d3d11_pl_init(struct vo *vo, struct gpu_ctx *ctx,
                swapchain ? "OK" : "failed");
         goto err_out;
     }
-
+    
     pl_d3d11 d3d11 = pl_d3d11_create(ctx->pllog,
         pl_d3d11_params(
             .device = device,
@@ -127,7 +128,7 @@ struct gpu_ctx *gpu_ctx_create(struct vo *vo, struct gl_video_opts *gl_opts)
     }
 #endif
 
-    ctx->pllog = mppl_log_create(ctx->log);
+    ctx->pllog = mppl_log_create(ctx, ctx->log);
     if (!ctx->pllog)
         goto err_out;
 
@@ -148,6 +149,10 @@ struct gpu_ctx *gpu_ctx_create(struct vo *vo, struct gl_video_opts *gl_opts)
             pl_opengl_params(
                 .debug = ctx_opts->debug,
                 .allow_software = ctx_opts->allow_sw,
+# if PL_API_VER >= 215
+                .get_proc_addr_ex = (void *) ra_gl_get(ctx->ra_ctx->ra)->get_fn,
+                .proc_ctx = ra_gl_get(ctx->ra_ctx->ra)->fn_ctx,
+# endif
 # if HAVE_EGL
                 .egl_display = eglGetCurrentDisplay(),
                 .egl_context = eglGetCurrentContext(),

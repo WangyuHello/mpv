@@ -23,6 +23,7 @@
 #include "vo.h"
 
 struct wayland_opts {
+    int configure_bounds;
     int disable_vsync;
     int edge_pixels_pointer;
     int edge_pixels_touch;
@@ -50,6 +51,8 @@ struct vo_wayland_state {
     struct mp_rect window_size;
     struct wl_list output_list;
     struct vo_wayland_output *current_output;
+    int bounded_height;
+    int bounded_width;
     int gcd;
     int reduced_height;
     int reduced_width;
@@ -80,6 +83,11 @@ struct vo_wayland_state {
 
     /* linux-dmabuf */
     struct zwp_linux_dmabuf_v1 *dmabuf;
+    /* TODO: unvoid this if required wayland protocols is bumped to 1.24+ */
+    void *dmabuf_feedback;
+    void *format_map;
+    uint32_t format_size;
+    /* TODO: remove these once zwp_linux_dmabuf_v1 version 2 support is removed. */
     int *drm_formats;
     int drm_format_ct;
     int drm_format_ct_max;
@@ -87,14 +95,9 @@ struct vo_wayland_state {
     /* presentation-time */
     struct wp_presentation  *presentation;
     struct wp_presentation_feedback *feedback;
-    struct vo_wayland_sync *sync;
-    int sync_size;
-    int64_t last_ust;
-    int64_t last_msc;
-    int64_t last_skipped_vsyncs;
-    int64_t last_queue_display_time;
+    struct mp_present *present;
     int64_t refresh_interval;
-    int64_t vsync_duration;
+    bool use_present;
 
     /* xdg-decoration */
     struct zxdg_decoration_manager_v1 *xdg_decoration_manager;
@@ -140,7 +143,7 @@ struct vo_wayland_state {
 };
 
 bool vo_wayland_check_visible(struct vo *vo);
-bool vo_wayland_supported_format(struct vo *vo, uint32_t format);
+bool vo_wayland_supported_format(struct vo *vo, uint32_t format, uint64_t modifier);
 
 int vo_wayland_allocate_memfd(struct vo *vo, size_t size);
 int vo_wayland_control(struct vo *vo, int *events, int request, void *arg);

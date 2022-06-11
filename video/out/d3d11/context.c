@@ -17,9 +17,11 @@
 
 #include "common/msg.h"
 #include "options/m_config.h"
+#include "osdep/atomic.h"
 #include "osdep/timer.h"
 #include "osdep/windows_utils.h"
 
+#include "video/out/libmpv.h"
 #include "video/out/gpu/context.h"
 #include "video/out/gpu/d3d11_helpers.h"
 #include "video/out/gpu/spirv.h"
@@ -40,6 +42,7 @@ struct d3d11_opts {
     int output_format;
     int color_space;
     int exclusive_fs;
+    int composition;
 };
 
 #define OPT_BASE_STRUCT struct d3d11_opts
@@ -76,6 +79,7 @@ const struct m_sub_options d3d11_conf = {
             {"pq",      DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020},
             {"bt.2020", DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020})},
         {"d3d11-exclusive-fs", OPT_FLAG(exclusive_fs)},
+        {"d3d11-composition", OPT_FLAG(composition)},
         {0}
     },
     .defaults = &(const struct d3d11_opts) {
@@ -108,7 +112,12 @@ struct priv {
     int64_t last_sync_qpc_time;
     int64_t vsync_duration_qpc;
     int64_t last_submit_qpc;
+
+    atomic_uint composition_event_flags;
 };
+
+static mpv_d3d_init_fn d3d_init_callback;
+static mpv_ra_ctx_fn ra_ctx_callback;
 
 static int d3d11_validate_adapter(struct mp_log *log,
                                   const struct m_option *opt,
@@ -173,6 +182,7 @@ static bool resize(struct ra_ctx *ctx)
 
     hr = IDXGISwapChain_ResizeBuffers(p->swapchain, 0, ctx->vo->dwidth,
         ctx->vo->dheight, DXGI_FORMAT_UNKNOWN, 0);
+    MP_VERBOSE(ctx, "resize swapchain: %d, %d\n", ctx->vo->dwidth, ctx->vo->dheight);
     if (FAILED(hr)) {
         MP_FATAL(ctx, "Couldn't resize swapchain: %s\n", mp_HRESULT_to_str(hr));
         return false;
@@ -181,9 +191,60 @@ static bool resize(struct ra_ctx *ctx)
     return true;
 }
 
+static bool rescale(struct ra_ctx *ctx)
+{
+    struct priv *p = ctx->priv;
+    HRESULT hr;
+
+    if (p->backbuffer) {
+        MP_ERR(ctx, "Attempt at scaling while a frame was in progress!\n");
+        return false;
+    }
+
+    IDXGISwapChain2 *swapchain2 = NULL;
+
+    hr = IDXGISwapChain_QueryInterface(p->swapchain, &IID_IDXGISwapChain2,
+                                        (void**)&swapchain2);
+    if (FAILED(hr)) {
+        MP_FATAL(ctx, "Couldn't convert to swapchain2: %s\n", mp_HRESULT_to_str(hr));
+        return false;
+    }
+
+    const DXGI_MATRIX_3X2_F mat = {
+        ._11 = 1.0f / ctx->vo->panel_scalex,
+        ._22 = 1.0f / ctx->vo->panel_scaley
+    };
+
+    hr = IDXGISwapChain2_SetMatrixTransform(swapchain2, &mat);
+
+    MP_VERBOSE(ctx, "rescale swapchain: %f, %f\n", ctx->vo->panel_scalex, ctx->vo->panel_scaley);
+    if (FAILED(hr)) {
+        MP_FATAL(ctx, "Couldn't rescale swapchain: %s\n", mp_HRESULT_to_str(hr));
+        return false;
+    }
+
+    return true;
+}
+
 static bool d3d11_reconfig(struct ra_ctx *ctx)
 {
-    vo_w32_config(ctx->vo);
+    MP_VERBOSE(ctx, "d3d11_reconfig start\n");
+    struct priv *p = ctx->priv;
+    if (!p->opts->composition)
+    {
+        vo_w32_config(ctx->vo);
+    }
+    else
+    {
+        ctx->vo->dwidth = ctx->vo->init_panel_width;
+        ctx->vo->dheight = ctx->vo->init_panel_height;
+        ctx->vo->panel_scalex = ctx->vo->init_panel_scalex;
+        ctx->vo->panel_scaley = ctx->vo->init_panel_scaley;
+        atomic_fetch_or(&p->composition_event_flags, VO_EVENT_RESIZE);
+        atomic_fetch_or(&p->composition_event_flags, VO_EVENT_SCALE_CHANGED);
+    }
+    
+    MP_VERBOSE(ctx, "d3d11_reconfig resize\n");
     return resize(ctx);
 }
 
@@ -428,8 +489,18 @@ static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg
         fullscreen_switch_needed = false;
     }
 
-    ret = vo_w32_control(ctx->vo, events, request, arg);
-
+    // MP_VERBOSE(ctx, "pre d3d11_control request %d event %d\n", request, *events);
+    if (!p->opts->composition)
+    {
+        ret = vo_w32_control(ctx->vo, events, request, arg);
+    }
+    else
+    {
+        ret = VO_TRUE;
+        *events |= atomic_fetch_and(&p->composition_event_flags, 0);
+    }
+    // MP_VERBOSE(ctx, "d3d11_control event %d\n", *events);
+    
     // if entering full screen, handle d3d11 after general windowing stuff
     if (fullscreen_switch_needed && p->vo_opts->fullscreen) {
         if (!d3d11_set_fullscreen(ctx))
@@ -438,8 +509,14 @@ static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg
         fullscreen_switch_needed = false;
     }
 
-    if (*events & VO_EVENT_RESIZE) {
+    if ((*events & VO_EVENT_RESIZE)) {
+        MP_VERBOSE(ctx, "d3d11_control resize\n");
         if (!resize(ctx))
+            return VO_ERROR;
+    }
+    if ((*events & VO_EVENT_SCALE_CHANGED)) {
+        MP_VERBOSE(ctx, "d3d11_control scale change\n");
+        if (!rescale(ctx))
             return VO_ERROR;
     }
     return ret;
@@ -455,8 +532,11 @@ static void d3d11_uninit(struct ra_ctx *ctx)
     if (ctx->ra)
         ra_tex_free(ctx->ra, &p->backbuffer);
     SAFE_RELEASE(p->swapchain);
-    vo_w32_uninit(ctx->vo);
-    SAFE_RELEASE(p->device);
+    if (!p->opts->composition)
+    {
+        vo_w32_uninit(ctx->vo);
+    }
+    SAFE_RELEASE(p->device);   
 
     // Destroy the RA last to prevent objects we hold from showing up in D3D's
     // leak checker
@@ -474,6 +554,16 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
+    ra_ctx_callback(ctx, 
+        &ctx->vo->init_panel_width, 
+        &ctx->vo->init_panel_height, 
+        &ctx->vo->init_panel_scalex, 
+        &ctx->vo->init_panel_scaley, 
+        &ctx->vo->bounds_left,
+        &ctx->vo->bounds_top,
+        &ctx->vo->bounds_right,
+        &ctx->vo->bounds_bottom
+    );
     struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
     p->opts_cache = m_config_cache_alloc(ctx, ctx->global, &d3d11_conf);
     p->opts = p->opts_cache->opts;
@@ -507,8 +597,16 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!ctx->ra)
         goto error;
 
-    if (!vo_w32_init(ctx->vo))
-        goto error;
+    if (!p->opts->composition)
+    {   
+        if (!vo_w32_init(ctx->vo))
+            goto error;
+    }
+    else
+    {
+        ctx->vo->dwidth = ctx->vo->init_panel_width;
+        ctx->vo->dheight = ctx->vo->init_panel_height;
+    }
 
     UINT usage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
     if (ID3D11Device_GetFeatureLevel(p->device) >= D3D_FEATURE_LEVEL_11_0 &&
@@ -518,7 +616,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
     }
 
     struct d3d11_swapchain_opts scopts = {
-        .window = vo_w32_hwnd(ctx->vo),
+        .window = (p->opts->composition) ? 0 : vo_w32_hwnd(ctx->vo),
         .width = ctx->vo->dwidth,
         .height = ctx->vo->dheight,
         .format = p->opts->output_format,
@@ -529,9 +627,23 @@ static bool d3d11_init(struct ra_ctx *ctx)
         // contention with the window manager when acquiring the backbuffer
         .length = ctx->vo->opts->swapchain_depth + 2,
         .usage = usage,
+        .composition = p->opts->composition,
+        .bounds = {
+            .left = ctx->vo->bounds_left,
+            .right = ctx->vo->bounds_right,
+            .top = ctx->vo->bounds_top,
+            .bottom = ctx->vo->bounds_bottom,
+        },
     };
     if (!mp_d3d11_create_swapchain(p->device, ctx->log, &scopts, &p->swapchain))
         goto error;
+
+    if (d3d_init_callback)
+    {
+        ID3D11Device_AddRef(p->device);
+        IDXGISwapChain_AddRef(p->swapchain);
+        d3d_init_callback(p->device, p->swapchain);
+    }
 
     return true;
 
@@ -560,3 +672,29 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
     .init     = d3d11_init,
     .uninit   = d3d11_uninit,
 };
+
+int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback) {
+    d3d_init_callback = callback;
+}
+
+int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback) {
+    ra_ctx_callback = callback;
+}
+
+int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
+    ctx->vo->dwidth = width;
+    ctx->vo->dheight = height;
+
+    struct priv *p = ctx->priv;
+    atomic_fetch_or(&p->composition_event_flags, VO_EVENT_RESIZE);
+    MP_VERBOSE(ctx, "update size: %d %d\n", width, height);
+}
+
+int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
+    ctx->vo->panel_scalex = scaleX;
+    ctx->vo->panel_scaley = scaleY;
+
+    struct priv *p = ctx->priv;
+    atomic_fetch_or(&p->composition_event_flags, VO_EVENT_SCALE_CHANGED);
+    MP_VERBOSE(ctx, "update scale: %f %f\n", scaleX, scaleY);
+}

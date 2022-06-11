@@ -731,6 +731,15 @@ MPV_EXPORT void mpv_render_context_report_swap(mpv_render_context *ctx);
  */
 MPV_EXPORT void mpv_render_context_free(mpv_render_context *ctx);
 
+///////////////////////////d3d init////////////////////////////////////////
+typedef struct ra_ctx ra_ctx;
+typedef void (*mpv_d3d_init_fn)(void *d3d11Device, void *swapChain);
+typedef void (*mpv_ra_ctx_fn)(ra_ctx *ctx, int *width, int *height, float *scaleX, float *scaleY, int *bounds_left, int *bounds_top, int *bounds_right, int *bounds_bottom);
+MPV_EXPORT int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback);
+MPV_EXPORT int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback);
+MPV_EXPORT int mpv_set_panel_size(ra_ctx *ctx, int width, int height);
+MPV_EXPORT int mpv_set_panel_scale(ra_ctx *ctx, float scaleX, float scaleY);
+
 #ifdef __cplusplus
 }
 #endif

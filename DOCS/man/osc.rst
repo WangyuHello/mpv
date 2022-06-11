@@ -236,7 +236,7 @@ Configurable Options
 
     Enable the OSC when fullscreen
 
-``showidlescreen``
+``idlescreen``
     Default: yes
 
     Show the mpv logo and message when idle
@@ -314,6 +314,14 @@ Configurable Options
     Default: no
 
     Display timecodes with milliseconds
+
+``tcspace``
+    Default: 100 (allowed: 50-200)
+
+    Adjust space reserved for timecodes (current time and time remaining) in
+    the ``bottombar`` and ``topbar`` layouts. The timecode width depends on the
+    font, and with some fonts the spacing near the timecodes becomes too small.
+    Use values above 100 to increase that spacing, or below 100 to decrease it.
 
 ``visibility``
     Default: auto (auto hide/show on mouse move)
@@ -399,6 +407,12 @@ Configurable Options
     Template for the chapter-name display when hovering the seekbar.
     Use ``no`` to disable chapter display on hover. Otherwise it's a lua
     ``string.format`` template and ``%s`` is replaced with the actual name.
+
+``unicodeminus``
+    Default: no
+
+    Use a Unicode minus sign instead of an ASCII hyphen when displaying
+    the remaining playback time.
 
 
 Script Commands
