@@ -665,6 +665,60 @@ done:
     return hr;
 }
 
+static HRESULT create_swapchain_1_2_comp(ID3D11Device *dev, IDXGIFactory2 *factory,
+                                    struct mp_log *log,
+                                    struct d3d11_swapchain_opts *opts,
+                                    bool flip, DXGI_FORMAT format,
+                                    IDXGISwapChain **swapchain_out)
+{
+    IDXGISwapChain *swapchain = NULL;
+    IDXGISwapChain1 *swapchain1 = NULL;
+    HRESULT hr;
+
+    DXGI_SWAP_CHAIN_DESC1 desc = {
+        .Width = opts->width ? opts->width : 1,
+        .Height = opts->height ? opts->height : 1,
+        .Format = format,
+        .SampleDesc = { .Count = 1 },
+        .BufferUsage = opts->usage,
+    };
+
+    if (flip) {
+        // UNORDERED_ACCESS with FLIP_SEQUENTIAL seems to be buggy with
+        // Windows 7 drivers
+        if ((desc.BufferUsage & DXGI_USAGE_UNORDERED_ACCESS) &&
+            !IsWindows8OrGreater())
+        {
+            mp_verbose(log, "Disabling UNORDERED_ACCESS for flip-model "
+                            "swapchain backbuffers in Windows 7\n");
+            desc.BufferUsage &= ~DXGI_USAGE_UNORDERED_ACCESS;
+        }
+
+        desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        desc.BufferCount = opts->length;
+    } else {
+        desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        desc.BufferCount = 1;
+    }
+
+    hr = IDXGIFactory2_CreateSwapChainForComposition(factory, (IUnknown*)dev,
+        &desc, NULL, &swapchain1);
+    if (FAILED(hr))
+        goto done;
+    hr = IDXGISwapChain1_QueryInterface(swapchain1, &IID_IDXGISwapChain,
+                                        (void**)&swapchain);
+    if (FAILED(hr))
+        goto done;
+
+    *swapchain_out = swapchain;
+    swapchain = NULL;
+
+done:
+    SAFE_RELEASE(swapchain1);
+    SAFE_RELEASE(swapchain);
+    return hr;
+}
+
 static HRESULT create_swapchain_1_1(ID3D11Device *dev, IDXGIFactory1 *factory,
                                     struct mp_log *log,
                                     struct d3d11_swapchain_opts *opts,
@@ -892,8 +946,14 @@ bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,
     do {
         if (factory2) {
             // Create a DXGI 1.2+ (Windows 8+) swap chain if possible
-            hr = create_swapchain_1_2(dev, factory2, log, opts, flip,
-                                      DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            if(opts->composition) {
+                hr = create_swapchain_1_2_comp(dev, factory2, log, opts, flip,
+                                        DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            } else {
+                hr = create_swapchain_1_2(dev, factory2, log, opts, flip,
+                                        DXGI_FORMAT_R8G8B8A8_UNORM, &swapchain);
+            }
+
         } else {
             // Fall back to DXGI 1.1 (Windows 7)
             hr = create_swapchain_1_1(dev, factory, log, opts,

@@ -50,6 +50,8 @@
 #include "video/out/vulkan/context.h"
 #endif
 
+#include "libmpv.h"
+
 #if HAVE_D3D11
 static bool d3d11_pl_init(struct vo *vo, struct gpu_ctx *ctx,
                           struct ra_ctx_opts *ctx_opts)
@@ -71,6 +73,8 @@ static bool d3d11_pl_init(struct vo *vo, struct gpu_ctx *ctx,
                swapchain ? "OK" : "failed");
         goto err_out;
     }
+
+    d3d_init_callback(ra_d3d11_get_device(ctx->ra_ctx->ra), ra_d3d11_ctx_get_swapchain(ctx->ra_ctx));
 
     pl_d3d11 d3d11 = pl_d3d11_create(ctx->pllog,
         pl_d3d11_params(
@@ -233,4 +237,10 @@ skip_common_pl_cleanup:
 
     talloc_free(ctx);
     *ctxp = NULL;
+}
+
+static mpv_gpu_next_d3d_init_fn d3d_init_callback;
+
+int mpv_set_gpu_next_d3d_init_callback(mpv_gpu_next_d3d_init_fn callback) {
+    d3d_init_callback = callback;
 }

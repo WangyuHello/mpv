@@ -40,6 +40,7 @@ struct d3d11_opts {
     int output_format;
     int color_space;
     int exclusive_fs;
+    int composition;
 };
 
 #define OPT_BASE_STRUCT struct d3d11_opts
@@ -76,6 +77,7 @@ const struct m_sub_options d3d11_conf = {
             {"pq",      DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020},
             {"bt.2020", DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P2020})},
         {"d3d11-exclusive-fs", OPT_FLAG(exclusive_fs)},
+        {"d3d11-composition", OPT_FLAG(composition)}
         {0}
     },
     .defaults = &(const struct d3d11_opts) {
@@ -529,6 +531,8 @@ static bool d3d11_init(struct ra_ctx *ctx)
         // contention with the window manager when acquiring the backbuffer
         .length = ctx->vo->opts->swapchain_depth + 2,
         .usage = usage,
+        // .composition = p->opts->composition,
+        .composition = 1,
     };
     if (!mp_d3d11_create_swapchain(p->device, ctx->log, &scopts, &p->swapchain))
         goto error;

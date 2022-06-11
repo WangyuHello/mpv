@@ -731,6 +731,10 @@ MPV_EXPORT void mpv_render_context_report_swap(mpv_render_context *ctx);
  */
 MPV_EXPORT void mpv_render_context_free(mpv_render_context *ctx);
 
+///////////////////////////gpu_next////////////////////////////////////////
+typedef void (*mpv_gpu_next_d3d_init_fn)(void *d3d11Device, void *swapChain);
+MPV_EXPORT int mpv_set_gpu_next_d3d_init_callback(mpv_gpu_next_d3d_init_fn callback);
+
 #ifdef __cplusplus
 }
 #endif
