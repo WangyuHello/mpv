@@ -16,12 +16,12 @@ source_root = meson.project_source_root()
 python = find_program('python3')
 
 # ffmpeg
-libavcodec = dependency('libavcodec', version: '>= 58.12.100')
-libavfilter = dependency('libavfilter', version: '>= 7.14.100')
-libavformat = dependency('libavformat', version: '>= 58.9.100')
-libavutil = dependency('libavutil', version: '>= 56.12.100')
-libswresample = dependency('libswresample', version: '>= 3.0.100')
-libswscale = dependency('libswscale', version: '>= 5.0.101')
+libavcodec = dependency('libavcodec', version: '>= 58.134.100')
+libavfilter = dependency('libavfilter', version: '>= 7.110.100')
+libavformat = dependency('libavformat', version: '>= 58.76.100')
+libavutil = dependency('libavutil', version: '>= 56.70.100')
+libswresample = dependency('libswresample', version: '>= 3.9.100')
+libswscale = dependency('libswscale', version: '>= 5.9.100')
 
 libass = dependency('libass', version: '>= 0.12.2')
 pthreads = dependency('threads')
@@ -327,7 +327,7 @@ endif
 features += {'ta-leak-report': get_option('ta-leak-report')}
 
 libdl_dep = cc.find_library('dl', required: false)
-features += {'libdl': libdl_dep.found() and cc.has_function('dlopen', dependencies: libdl_dep, prefix: '#include <dlfcn.h>')}
+features += {'libdl': cc.has_function('dlopen', dependencies: libdl_dep, prefix: '#include <dlfcn.h>')}
 if features['libdl']
     dependencies += libdl_dep
 endif
@@ -631,7 +631,7 @@ if features['libarchive']
                      'stream/stream_libarchive.c')
 endif
 
-libavdevice = dependency('libavdevice', version: '>= 57.0.0', required: get_option('libavdevice'))
+libavdevice = dependency('libavdevice', version: '>= 58.13.100', required: get_option('libavdevice'))
 features += {'libavdevice': libavdevice.found()}
 if features['libavdevice']
     dependencies += libavdevice
@@ -716,10 +716,11 @@ if features['sdl2-gamepad']
     sources += files('input/sdl_gamepad.c')
 endif
 
-stdatomic = cc.find_library('atomic', required: get_option('stdatomic'))
-features += {'stdatomic': stdatomic.found()}
+stdatomic_dep = cc.find_library('atomic', required: false)
+features += {'stdatomic': cc.has_header_symbol('stdatomic.h', 'atomic_int', dependencies: stdatomic_dep,
+                                               required: get_option('stdatomic'))}
 if features['stdatomic']
-    dependencies += stdatomic
+    dependencies += stdatomic_dep
 endif
 
 uchardet_opt = get_option('uchardet').require(
@@ -1624,7 +1625,7 @@ sys.stdout.write(features)
 '''
 feature_str = run_command(python, '-c', feature_sort, feature_keys, check: true).stdout()
 conf_data.set_quoted('FULLCONFIG', feature_str)
-conf_data.set_quoted('MPV_CONFDIR', join_paths(get_option('sysconfdir'), 'mpv'))
+conf_data.set_quoted('MPV_CONFDIR', join_paths(get_option('prefix'), get_option('sysconfdir'), 'mpv'))
 configure_file(output : 'config.h', configuration : conf_data)
 message('List of enabled features: ' + feature_str)
 

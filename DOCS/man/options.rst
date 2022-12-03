@@ -3243,6 +3243,12 @@ Window
     depending on GPU drivers and hardware. For other VOs, this just makes
     rendering slower.
 
+``--force-render``
+    Forces mpv to always render frames regardless of the visibility of the
+    window. Currently only affects X11 and Wayland VOs since they are the
+    only ones that have this optimization (i.e. everything else always renders
+    regardless of visibility).
+
 ``--force-window-position``
     Forcefully move mpv's video output window to default location whenever
     there is a change in video parameters, video stream or file. This used to
@@ -5580,6 +5586,12 @@ them.
     just prevents the mpv window from being larger than the size of the monitor when
     it first renders. This option will take precedence over any ``autofit`` or
     ``geometry`` type settings if the configure bounds are used.
+
+``--wayland-content-type=<auto|none|photo|video|game>``
+    If supported by the compositor, mpv will send a hint using the content-type
+    protocol telling the compositor what type of content is being displayed. ``auto``
+    (default) will automatically switch between telling the compositor the content
+    is a photo, video or possibly none depending on internal heuristics.
 
 ``--wayland-disable-vsync=<yes|no>``
     Disable mpv's internal vsync for Wayland-based video output (default: no).

@@ -42,6 +42,11 @@
 #include "generated/wayland/xdg-shell.h"
 #include "generated/wayland/viewporter.h"
 
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+#include "generated/wayland/content-type-v1.h"
+#include "generated/wayland/single-pixel-buffer-v1.h"
+#endif
+
 #if WAYLAND_VERSION_MAJOR > 1 || WAYLAND_VERSION_MINOR >= 20
 #define HAVE_WAYLAND_1_20
 #endif
@@ -299,19 +304,20 @@ static void touch_handle_down(void *data, struct wl_touch *wl_touch,
                               int32_t id, wl_fixed_t x_w, wl_fixed_t y_w)
 {
     struct vo_wayland_state *wl = data;
-
     wl->mouse_x = wl_fixed_to_int(x_w) * wl->scaling;
     wl->mouse_y = wl_fixed_to_int(y_w) * wl->scaling;
 
+    enum xdg_toplevel_resize_edge edge;
+    if (!mp_input_test_dragging(wl->vo->input_ctx, wl->mouse_x, wl->mouse_y)) {
+        if (check_for_resize(wl, x_w, y_w, wl->opts->edge_pixels_touch, &edge)) {
+            xdg_toplevel_resize(wl->xdg_toplevel, wl->seat, serial, edge);
+        } else  {
+            xdg_toplevel_move(wl->xdg_toplevel, wl->seat, serial);
+        }
+    }
+
     mp_input_set_mouse_pos(wl->vo->input_ctx, wl->mouse_x, wl->mouse_y);
     mp_input_put_key(wl->vo->input_ctx, MP_MBTN_LEFT | MP_KEY_STATE_DOWN);
-
-    enum xdg_toplevel_resize_edge edge;
-    if (check_for_resize(wl, x_w, y_w, wl->opts->edge_pixels_touch, &edge)) {
-        xdg_toplevel_resize(wl->xdg_toplevel, wl->seat, serial, edge);
-    } else {
-        xdg_toplevel_move(wl->xdg_toplevel, wl->seat, serial);
-    }
 }
 
 static void touch_handle_up(void *data, struct wl_touch *wl_touch,
@@ -752,8 +758,8 @@ static void surface_handle_enter(void *data, struct wl_surface *wl_surface,
     if (!mp_rect_equals(&old_geometry, &wl->geometry) || force_resize)
         wl->pending_vo_events |= VO_EVENT_RESIZE;
 
-    MP_VERBOSE(wl, "Surface entered output %s %s (0x%x), scale = %i\n", o->make,
-               o->model, o->id, wl->scaling);
+    MP_VERBOSE(wl, "Surface entered output %s %s (0x%x), scale = %i, refresh rate = %f Hz\n",
+               o->make, o->model, o->id, wl->scaling, o->refresh_rate);
 
     wl->pending_vo_events |= VO_EVENT_WIN_STATE;
 }
@@ -1232,6 +1238,16 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
         wl->shm = wl_registry_bind(reg, id, &wl_shm_interface, 1);
     }
 
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+    if (!strcmp(interface, wp_content_type_manager_v1_interface.name) && found++) {
+        wl->content_type_manager = wl_registry_bind(reg, id, &wp_content_type_manager_v1_interface, 1);
+    }
+
+    if (!strcmp(interface, wp_single_pixel_buffer_manager_v1_interface.name) && found++) {
+        wl->single_pixel_manager = wl_registry_bind(reg, id, &wp_single_pixel_buffer_manager_v1_interface, 1);
+    }
+#endif
+
     if (!strcmp(interface, wp_presentation_interface.name) && found++) {
         wl->presentation = wl_registry_bind(reg, id, &wp_presentation_interface, 1);
         wp_presentation_add_listener(wl->presentation, &pres_listener, wl);
@@ -1520,6 +1536,20 @@ static void remove_output(struct vo_wayland_output *out)
     return;
 }
 
+static void set_content_type(struct vo_wayland_state *wl)
+{
+    if (!wl->content_type_manager)
+        return;
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+    // handle auto;
+    if (wl->vo_opts->content_type == -1) {
+        wp_content_type_v1_set_content_type(wl->content_type, wl->current_content_type);
+    } else {
+        wp_content_type_v1_set_content_type(wl->content_type, wl->vo_opts->content_type);
+    }
+#endif
+}
+
 static int set_cursor_visibility(struct vo_wayland_state *wl, bool on)
 {
     wl->cursor_visible = on;
@@ -1754,7 +1784,7 @@ int vo_wayland_allocate_memfd(struct vo *vo, size_t size)
 bool vo_wayland_check_visible(struct vo *vo)
 {
     struct vo_wayland_state *wl = vo->wl;
-    bool render = !wl->hidden || wl->opts->disable_vsync;
+    bool render = !wl->hidden || wl->vo_opts->force_render;
     wl->frame_wait = true;
     return render;
 }
@@ -1803,6 +1833,8 @@ int vo_wayland_control(struct vo *vo, int *events, int request, void *arg)
                                              &wl->vo_opts->border);
                 }
             }
+            if (opt == &opts->content_type)
+                set_content_type(wl);
             if (opt == &opts->fullscreen)
                 toggle_fullscreen(wl);
             if (opt == &opts->hidpi_window_scale)
@@ -1823,6 +1855,13 @@ int vo_wayland_control(struct vo *vo, int *events, int request, void *arg)
                 }
             }
         }
+        return VO_TRUE;
+    }
+    case VOCTRL_CONTENT_TYPE: {
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+        wl->current_content_type = (enum mp_content_type)arg;
+        set_content_type(wl);
+#endif
         return VO_TRUE;
     }
     case VOCTRL_GET_FOCUSED: {
@@ -1931,6 +1970,12 @@ int vo_wayland_init(struct vo *vo)
     /* Do a roundtrip to run the registry */
     wl_display_roundtrip(wl->display);
 
+    if (!wl->surface) {
+        MP_FATAL(wl, "Compositor doesn't support %s (ver. 4)\n",
+                 wl_compositor_interface.name);
+        return false;
+    }
+
     if (!wl->wm_base) {
         MP_FATAL(wl, "Compositor doesn't support the required %s protocol!\n",
                  xdg_wm_base_interface.name);
@@ -1960,6 +2005,20 @@ int vo_wayland_init(struct vo *vo)
     const char *xdg_current_desktop = getenv("XDG_CURRENT_DESKTOP");
     if (xdg_current_desktop != NULL && strstr(xdg_current_desktop, "GNOME"))
         MP_WARN(wl, "GNOME's wayland compositor lacks support for the idle inhibit protocol. This means the screen can blank during playback.\n");
+
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+    if (wl->content_type_manager) {
+        wl->content_type = wp_content_type_manager_v1_get_surface_content_type(wl->content_type_manager, wl->surface);
+    } else {
+        MP_VERBOSE(wl, "Compositor doesn't support the %s protocol!\n",
+                   wp_content_type_manager_v1_interface.name);
+    }
+
+    if (!wl->single_pixel_manager) {
+        MP_VERBOSE(wl, "Compositor doesn't support the %s protocol!\n",
+                   wp_single_pixel_buffer_manager_v1_interface.name);
+    }
+#endif
 
     if (wl->dnd_devman && wl->seat) {
         wl->dnd_ddev = wl_data_device_manager_get_data_device(wl->dnd_devman, wl->seat);
@@ -2113,6 +2172,14 @@ void vo_wayland_uninit(struct vo *vo)
     if (wl->cursor_theme)
         wl_cursor_theme_destroy(wl->cursor_theme);
 
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+    if (wl->content_type)
+        wp_content_type_v1_destroy(wl->content_type);
+
+    if (wl->content_type_manager)
+        wp_content_type_manager_v1_destroy(wl->content_type_manager);
+#endif
+
     if (wl->dnd_ddev)
         wl_data_device_destroy(wl->dnd_ddev);
 
@@ -2168,6 +2235,11 @@ void vo_wayland_uninit(struct vo *vo)
 
     if (wl->shm)
         wl_shm_destroy(wl->shm);
+
+#if HAVE_WAYLAND_PROTOCOLS_1_27
+    if (wl->single_pixel_manager)
+        wp_single_pixel_buffer_manager_v1_destroy(wl->single_pixel_manager);
+#endif
 
     if (wl->surface)
         wl_surface_destroy(wl->surface);
