@@ -51,10 +51,11 @@ enum {
     // Part of VO_EVENTS_USER to make vo_is_ready_for_frame() work properly.
     VO_EVENT_INITIAL_UNBLOCK            = 1 << 7,
     VO_EVENT_FOCUS                      = 1 << 8,
+    VO_EVENT_SCALE_CHANGED              = 1 << 9,
 
     // Set of events the player core may be interested in.
     VO_EVENTS_USER = VO_EVENT_RESIZE | VO_EVENT_WIN_STATE | VO_EVENT_DPI |
-                     VO_EVENT_INITIAL_UNBLOCK | VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED,
+                     VO_EVENT_INITIAL_UNBLOCK | VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED | VO_EVENT_SCALE_CHANGED,
 };
 
 enum mp_voctrl {
