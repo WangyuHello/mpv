@@ -5,6 +5,7 @@ set -e
 
 meson setup build $common_args $@ \
   -Db_sanitize=address,undefined \
+  -Ddefault_library=static \
   -Dcdda=enabled \
   -Ddvbin=enabled \
   -Ddvdnav=enabled \
@@ -12,5 +13,5 @@ meson setup build $common_args $@ \
   -Dmanpage-build=enabled \
   -Dpipewire=enabled \
   -Dvulkan=enabled
-meson compile -C build
+meson compile -C build mpv:executable mpv:shared_library
 ./build/mpv -v --no-config

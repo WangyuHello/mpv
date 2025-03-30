@@ -1427,6 +1427,28 @@ static int mp_property_window_id(void *ctx, struct m_property *prop,
     return m_property_int64_ro(action, arg, wid);
 }
 
+static int mp_property_swapchain_id(void *ctx, struct m_property *prop,
+                                 int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    struct vo *vo = mpctx->video_out;
+    int64_t sw_id;
+    if (!vo || vo_control(vo, VOCTRL_GET_SWAPCHAIN_ID, &sw_id) <= 0)
+        return M_PROPERTY_UNAVAILABLE;
+    return m_property_int64_ro(action, arg, sw_id);
+}
+
+static int mp_property_ractx_id(void *ctx, struct m_property *prop,
+                                 int action, void *arg)
+{
+    MPContext *mpctx = ctx;
+    struct vo *vo = mpctx->video_out;
+    int64_t sw_id;
+    if (!vo || vo_control(vo, VOCTRL_GET_RACTX_ID, &sw_id) <= 0)
+        return M_PROPERTY_UNAVAILABLE;
+    return m_property_int64_ro(action, arg, sw_id);
+}
+
 static int mp_property_eof_reached(void *ctx, struct m_property *prop,
                                    int action, void *arg)
 {
@@ -4318,6 +4340,8 @@ static const struct m_property mp_properties_base[] = {
     {"deinterlace-active", mp_property_deinterlace},
     {"idle-active", mp_property_idle},
     {"window-id", mp_property_window_id},
+    {"swapchain-id", mp_property_swapchain_id},
+    {"ractx-id", mp_property_ractx_id},
 
     {"chapter-list", mp_property_list_chapters},
     {"track-list", mp_property_list_tracks},
@@ -4502,7 +4526,7 @@ static const char *const *const mp_event_property_change[] = {
       "video-format", "video-codec", "video-bitrate", "dwidth", "dheight",
       "width", "height", "container-fps", "aspect", "aspect-name", "vo-configured", "current-vo",
       "video-dec-params", "osd-dimensions", "hwdec", "hwdec-current", "hwdec-interop",
-      "window-id", "track-list", "current-tracks"),
+      "window-id", "track-list", "current-tracks", "swapchain-id", "ractx-id"),
     E(MPV_EVENT_AUDIO_RECONFIG, "audio-format", "audio-codec", "audio-bitrate",
       "samplerate", "channels", "audio", "volume", "volume-gain", "mute",
       "current-ao", "audio-codec-name", "audio-params", "track-list", "current-tracks",

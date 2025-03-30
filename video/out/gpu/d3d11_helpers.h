@@ -66,7 +66,9 @@ IDXGIAdapter1 *mp_get_dxgi_adapter(struct mp_log *log,
                                    bstr requested_adapter_name,
                                    bstr *listing);
 
-bool mp_get_dxgi_output_desc(IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc);
+bool mp_get_dxgi_output_desc(struct mp_log *log, bool composition, RECT bounds, IDXGIAdapter1 *adapter, IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc);
+
+bool mp_get_dxgi_output_desc2(struct mp_log *log, int bounds_left, int bounds_right, int bounds_top, int bounds_bottom, bool composition, ID3D11Device *device, IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc);
 
 OPT_STRING_VALIDATE_FUNC(mp_dxgi_validate_adapter);
 
@@ -99,6 +101,11 @@ struct d3d11_swapchain_opts {
     // The BufferUsage value for swapchain surfaces. This should probably
     // contain DXGI_USAGE_RENDER_TARGET_OUTPUT.
     DXGI_USAGE usage;
+
+    // For WinUI SwapChainPanel
+    bool composition;
+    // For color space detect
+    RECT bounds;
 };
 
 bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,

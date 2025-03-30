@@ -51,10 +51,11 @@ enum {
     // Part of VO_EVENTS_USER to make vo_is_ready_for_frame() work properly.
     VO_EVENT_INITIAL_UNBLOCK            = 1 << 7,
     VO_EVENT_FOCUS                      = 1 << 8,
+    VO_EVENT_SCALE_CHANGED              = 1 << 9,
 
     // Set of events the player core may be interested in.
     VO_EVENTS_USER = VO_EVENT_RESIZE | VO_EVENT_WIN_STATE | VO_EVENT_DPI |
-                     VO_EVENT_INITIAL_UNBLOCK | VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED,
+                     VO_EVENT_INITIAL_UNBLOCK | VO_EVENT_FOCUS | VO_EVENT_AMBIENT_LIGHTING_CHANGED | VO_EVENT_SCALE_CHANGED,
 };
 
 enum mp_voctrl {
@@ -122,6 +123,8 @@ enum mp_voctrl {
     VOCTRL_GET_HIDPI_SCALE,             // double*
     VOCTRL_GET_DISPLAY_RES,             // int[2]
     VOCTRL_GET_WINDOW_ID,               // int64_t*
+    VOCTRL_GET_SWAPCHAIN_ID,            // int64_t*
+    VOCTRL_GET_RACTX_ID,                // int64_t*
 
     /* private to vo_gpu and vo_gpu_next */
     VOCTRL_EXTERNAL_RESIZE,
@@ -522,6 +525,18 @@ struct vo {
     int dwidth;
     int dheight;
     float monitor_par;
+
+    // current panel state
+    int init_panel_width;
+    int init_panel_height;
+    float panel_scalex;
+    float panel_scaley;
+    float init_panel_scalex;
+    float init_panel_scaley;
+    int bounds_left;
+    int bounds_right;
+    int bounds_top;
+    int bounds_bottom;
 
     // current GPU context (--vo=gpu and --vo=gpu-next only)
     const char *context_name;

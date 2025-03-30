@@ -732,6 +732,12 @@ MPV_EXPORT void mpv_render_context_report_swap(mpv_render_context *ctx);
  */
 MPV_EXPORT void mpv_render_context_free(mpv_render_context *ctx);
 
+///////////////////////////For WinUI3 Composition Begin//////////////////////////////
+typedef struct ra_ctx ra_ctx;
+MPV_EXPORT int mpv_set_panel_size(ra_ctx *ctx, int width, int height);
+MPV_EXPORT int mpv_set_panel_scale(ra_ctx *ctx, float scaleX, float scaleY);
+///////////////////////////For WinUI3 Composition End//////////////////////////////
+
 #ifdef MPV_CPLUGIN_DYNAMIC_SYM
 
 MPV_DEFINE_SYM_PTR(mpv_render_context_create)
@@ -750,6 +756,12 @@ MPV_DEFINE_SYM_PTR(mpv_render_context_report_swap)
 #define mpv_render_context_report_swap pfn_mpv_render_context_report_swap
 MPV_DEFINE_SYM_PTR(mpv_render_context_free)
 #define mpv_render_context_free pfn_mpv_render_context_free
+///////////////////////////For WinUI3 Composition Begin//////////////////////////////
+MPV_DEFINE_SYM_PTR(mpv_set_panel_size)
+#define mpv_set_panel_size pfn_mpv_set_panel_size
+MPV_DEFINE_SYM_PTR(mpv_set_panel_scale)
+#define mpv_set_panel_scale pfn_mpv_set_panel_scale
+///////////////////////////For WinUI3 Composition End//////////////////////////////
 
 #endif
 

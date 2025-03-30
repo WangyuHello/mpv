@@ -281,6 +281,8 @@ static bool d3d11_get_mp_csp(DXGI_COLOR_SPACE_TYPE csp,
 }
 
 static bool query_output_format_and_colorspace(struct mp_log *log,
+                                               struct d3d11_swapchain_opts *opts,
+                                               IDXGIAdapter1 *adapter,
                                                IDXGISwapChain *swapchain,
                                                DXGI_FORMAT *out_fmt,
                                                DXGI_COLOR_SPACE_TYPE *out_cspace)
@@ -292,7 +294,7 @@ static bool query_output_format_and_colorspace(struct mp_log *log,
     if (!out_fmt || !out_cspace)
         return false;
 
-    if (!mp_get_dxgi_output_desc(swapchain, &desc)) {
+    if (!mp_get_dxgi_output_desc(log, opts->composition, opts->bounds, adapter, swapchain, &desc)) {
         mp_err(log, "Failed to query swap chain's output information\n");
         goto done;
     }
@@ -652,6 +654,10 @@ static HRESULT create_swapchain_1_2(ID3D11Device *dev, IDXGIFactory2 *factory,
         .BufferUsage = opts->usage,
     };
 
+    if(opts->composition) {
+        desc.Scaling = DXGI_SCALING_STRETCH;
+    }
+
     if (flip) {
         // UNORDERED_ACCESS with FLIP_SEQUENTIAL seems to be buggy with
         // Windows 7 drivers
@@ -674,8 +680,14 @@ static HRESULT create_swapchain_1_2(ID3D11Device *dev, IDXGIFactory2 *factory,
         desc.BufferCount = 1;
     }
 
-    hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown*)dev,
-        opts->window, &desc, NULL, NULL, &swapchain1);
+    if(opts->composition) {
+        mp_info(log, "Create composition swapchain, width: %d, height: %d\n", opts->width, opts->height);
+        hr = IDXGIFactory2_CreateSwapChainForComposition(factory, (IUnknown*)dev,
+            &desc, NULL, &swapchain1);
+    } else {
+        hr = IDXGIFactory2_CreateSwapChainForHwnd(factory, (IUnknown*)dev,
+            opts->window, &desc, NULL, NULL, &swapchain1);
+    }
     if (FAILED(hr))
         goto done;
     hr = IDXGISwapChain1_QueryInterface(swapchain1, &IID_IDXGISwapChain,
@@ -804,6 +816,8 @@ done:
 }
 
 static bool configure_created_swapchain(struct mp_log *log,
+                                        struct d3d11_swapchain_opts *opts,
+                                        IDXGIAdapter1 *adapter,
                                         IDXGISwapChain *swapchain,
                                         DXGI_FORMAT requested_format,
                                         DXGI_COLOR_SPACE_TYPE requested_csp,
@@ -818,7 +832,10 @@ static bool configure_created_swapchain(struct mp_log *log,
     struct pl_color_space pl_color_system = { 0 };
     bool mp_csp_mapped = false;
 
-    query_output_format_and_colorspace(log, swapchain,
+    query_output_format_and_colorspace(log, 
+                                       opts, 
+                                       adapter, 
+                                       swapchain,
                                        &probed_format,
                                        &probed_colorspace);
 
@@ -952,7 +969,11 @@ bool mp_d3d11_create_swapchain(ID3D11Device *dev, struct mp_log *log,
         mp_verbose(log, "Using DXGI 1.1\n");
     }
 
-    configure_created_swapchain(log, swapchain, opts->format,
+    configure_created_swapchain(log, 
+                                opts,
+                                adapter,
+                                swapchain,
+                                opts->format,
                                 opts->color_space,
                                 opts->configured_csp);
 
@@ -979,14 +1000,73 @@ done:
     return success;
 }
 
-bool mp_get_dxgi_output_desc(IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc)
+// Compute the overlay area of two rectangles, A and B.
+// (ax1, ay1) = left-top coordinates of A; (ax2, ay2) = right-bottom coordinates of A
+// (bx1, by1) = left-top coordinates of B; (bx2, by2) = right-bottom coordinates of B
+static inline int compute_intersection_area(int ax1, int ay1, int ax2, int ay2, int bx1, int by1, int bx2, int by2)
+{
+    return MPMAX(0, MPMIN(ax2, bx2) - MPMAX(ax1, bx1)) * MPMAX(0, MPMIN(ay2, by2) - MPMAX(ay1, by1));
+}
+
+static bool query_best_output(struct mp_log *log, RECT bounds, IDXGIAdapter1 *adapter, IDXGIOutput **output) {
+    UINT i = 0;
+    IDXGIOutput *currentOutput = NULL;
+    IDXGIOutput *bestOutput = NULL;
+    int bestIntersectArea = -1;
+
+    while (IDXGIAdapter1_EnumOutputs(adapter, i, &currentOutput) != DXGI_ERROR_NOT_FOUND)
+    {
+        // Get the retangle bounds of the app window
+        int ax1 = bounds.left;
+        int ay1 = bounds.top;
+        int ax2 = bounds.right;
+        int ay2 = bounds.bottom;
+
+        // Get the rectangle bounds of current output
+        DXGI_OUTPUT_DESC desc;
+        HRESULT hr = IDXGIOutput_GetDesc(currentOutput, &desc);
+        if (FAILED(hr)) {
+            mp_err(log, "Failed to query output information: %s\n", mp_HRESULT_to_str(hr));
+            goto done;
+        }
+        RECT r = desc.DesktopCoordinates;
+        int bx1 = r.left;
+        int by1 = r.top;
+        int bx2 = r.right;
+        int by2 = r.bottom;
+
+        // Compute the intersection
+        int intersectArea = compute_intersection_area(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2);
+        if (intersectArea > bestIntersectArea)
+        {
+            bestOutput = currentOutput;
+            bestIntersectArea = intersectArea;
+        }
+
+        i++;
+    }
+
+    *output = bestOutput;
+    return true;
+done:
+    SAFE_RELEASE(currentOutput);
+    SAFE_RELEASE(bestOutput);
+    return false;
+}
+
+bool mp_get_dxgi_output_desc(struct mp_log *log, bool composition, RECT bounds, IDXGIAdapter1 *adapter, IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc)
 {
     bool ret = false;
     IDXGIOutput *output = NULL;
     IDXGIOutput6 *output6 = NULL;
 
-    if (FAILED(IDXGISwapChain_GetContainingOutput(swapchain, &output)))
-        goto done;
+    if(composition) {
+        // Enumerate all displays to get DXGIOutput
+        query_best_output(log, bounds, adapter, &output);
+    } else {
+        if (FAILED(IDXGISwapChain_GetContainingOutput(swapchain, &output)))
+            goto done;
+    }
 
     if (FAILED(IDXGIOutput_QueryInterface(output, &IID_IDXGIOutput6, (void**)&output6)))
         goto done;
@@ -997,6 +1077,38 @@ done:
     SAFE_RELEASE(output);
     SAFE_RELEASE(output6);
     return ret;
+}
+
+bool mp_get_dxgi_output_desc2(struct mp_log *log, int bounds_left, int bounds_right, int bounds_top, int bounds_bottom, bool composition, ID3D11Device *device, IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc)
+{
+    RECT bounds = {
+        .left = bounds_left,
+        .right = bounds_right,
+        .top = bounds_top,
+        .bottom = bounds_bottom,
+    };
+
+    IDXGIDevice1 *dxgi_dev = NULL;
+    IDXGIAdapter1 *adapter = NULL;
+    bool success = false;
+    HRESULT hr;
+
+    hr = ID3D11Device_QueryInterface(device, &IID_IDXGIDevice1, (void**)&dxgi_dev);
+    if (FAILED(hr)) {
+        mp_fatal(log, "Failed to get DXGI device\n");
+        goto done;
+    }
+    hr = IDXGIDevice1_GetParent(dxgi_dev, &IID_IDXGIAdapter1, (void**)&adapter);
+    if (FAILED(hr)) {
+        mp_fatal(log, "Failed to get DXGI adapter\n");
+        goto done;
+    }
+
+    success = mp_get_dxgi_output_desc(log, composition, bounds, adapter, swapchain, desc);
+done:
+    SAFE_RELEASE(adapter);
+    SAFE_RELEASE(dxgi_dev);
+    return success;
 }
 
 void mp_d3d11_get_debug_interfaces(struct mp_log *log, IDXGIDebug **debug,
