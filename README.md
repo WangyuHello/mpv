@@ -1,3 +1,11 @@
+# mpv with composition swapchain support!
+This mpv will create a composition swapchain instead of hwnd swapchain.
+The composition swapchain can be binded to WinUI3 SwapChainPanel
+
+The prebuilt binary can be found at [Release](https://github.com/WangyuHello/mpv-winbuild-cmake/releases)
+
+# mpv original readme
+
 ![mpv logo](https://raw.githubusercontent.com/mpv-player/mpv.io/master/source/images/mpv-logo-128.png)
 
 # mpv

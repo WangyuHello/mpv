@@ -15,6 +15,8 @@
  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdatomic.h>
+
 #include "common/msg.h"
 #include "options/m_config.h"
 #include "osdep/timer.h"
@@ -27,6 +29,8 @@
 #include "context.h"
 #include "ra_d3d11.h"
 
+#include "video/out/libmpv.h"
+
 struct d3d11_opts {
     int feature_level;
     int warp;
@@ -36,7 +40,7 @@ struct d3d11_opts {
     int output_format;
     int color_space;
     bool exclusive_fs;
-    int composition;
+    bool composition;
 };
 
 #define OPT_BASE_STRUCT struct d3d11_opts
@@ -222,7 +226,14 @@ static int d3d11_color_depth(struct ra_swapchain *sw)
     struct priv *p = sw->priv;
 
     DXGI_OUTPUT_DESC1 desc1;
-    if (!mp_get_dxgi_output_desc(p->swapchain, &desc1))
+    if (!mp_get_dxgi_output_desc2(sw->ctx->log,
+                                  sw->ctx->vo->bounds_left,
+                                  sw->ctx->vo->bounds_right,
+                                  sw->ctx->vo->bounds_top,
+                                  sw->ctx->vo->bounds_bottom,
+                                  p->opts->composition,
+                                  p->device,
+                                  p->swapchain, &desc1))
         desc1.BitsPerColor = 0;
 
     DXGI_SWAP_CHAIN_DESC desc;
@@ -251,7 +262,14 @@ static struct pl_color_space d3d11_target_color_space(struct ra_swapchain *sw)
 
     struct pl_color_space ret = {0};
     DXGI_OUTPUT_DESC1 desc1;
-    if (!mp_get_dxgi_output_desc(p->swapchain, &desc1))
+    if (!mp_get_dxgi_output_desc2(sw->ctx->log,
+                                  sw->ctx->vo->bounds_left,
+                                  sw->ctx->vo->bounds_right,
+                                  sw->ctx->vo->bounds_top,
+                                  sw->ctx->vo->bounds_bottom,
+                                  p->opts->composition,
+                                  p->device,
+                                  p->swapchain, &desc1))
         return ret;
 
     ret.hdr.max_luma = desc1.MaxLuminance;
@@ -570,6 +588,16 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
+    ra_ctx_callback(ctx, 
+        &ctx->vo->init_panel_width, 
+        &ctx->vo->init_panel_height, 
+        &ctx->vo->init_panel_scalex, 
+        &ctx->vo->init_panel_scaley, 
+        &ctx->vo->bounds_left,
+        &ctx->vo->bounds_top,
+        &ctx->vo->bounds_right,
+        &ctx->vo->bounds_bottom
+    );
     struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
     p->opts_cache = m_config_cache_alloc(ctx, ctx->global, &d3d11_conf);
     p->opts = p->opts_cache->opts;
@@ -606,6 +634,9 @@ static bool d3d11_init(struct ra_ctx *ctx)
     if (!p->opts->composition) {
         if (!vo_w32_init(ctx->vo))
             goto error;
+    } else {
+        ctx->vo->dwidth = ctx->vo->init_panel_width;
+        ctx->vo->dheight = ctx->vo->init_panel_height;
     }
 
     if (ctx->opts.want_alpha)
@@ -694,10 +725,12 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
 
 int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback) {
     d3d_init_callback = callback;
+    return 0;
 }
 
 int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback) {
     ra_ctx_callback = callback;
+    return 0;
 }
 
 int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
@@ -707,6 +740,8 @@ int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_RESIZE);
     MP_VERBOSE(ctx, "update size: %d %d\n", width, height);
+    vo_wakeup(ctx->vo);
+    return 0;
 }
 
 int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
@@ -716,4 +751,6 @@ int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_SCALE_CHANGED);
     MP_VERBOSE(ctx, "update scale: %f %f\n", scaleX, scaleY);
+    vo_wakeup(ctx->vo);
+    return 0;
 }

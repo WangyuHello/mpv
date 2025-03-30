@@ -760,6 +760,16 @@ MPV_DEFINE_SYM_PTR(mpv_render_context_report_swap)
 #define mpv_render_context_report_swap pfn_mpv_render_context_report_swap
 MPV_DEFINE_SYM_PTR(mpv_render_context_free)
 #define mpv_render_context_free pfn_mpv_render_context_free
+///////////////////////////For WinUI3 Composition Begin//////////////////////////////
+MPV_DEFINE_SYM_PTR(mpv_set_d3d_init_callback)
+#define mpv_set_d3d_init_callback pfn_mpv_set_d3d_init_callback
+MPV_DEFINE_SYM_PTR(mpv_set_ra_ctx_callback)
+#define mpv_set_ra_ctx_callback pfn_mpv_set_ra_ctx_callback
+MPV_DEFINE_SYM_PTR(mpv_set_panel_size)
+#define mpv_set_panel_size pfn_mpv_set_panel_size
+MPV_DEFINE_SYM_PTR(mpv_set_panel_scale)
+#define mpv_set_panel_scale pfn_mpv_set_panel_scale
+///////////////////////////For WinUI3 Composition End//////////////////////////////
 
 #endif
 

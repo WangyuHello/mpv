@@ -1003,6 +1003,16 @@ done:
 // Compute the overlay area of two rectangles, A and B.
 // (ax1, ay1) = left-top coordinates of A; (ax2, ay2) = right-bottom coordinates of A
 // (bx1, by1) = left-top coordinates of B; (bx2, by2) = right-bottom coordinates of B
+static inline int max(int a, int b)
+{
+    return a > b ? a : b;
+}
+
+static inline int min(int a, int b)
+{
+    return a > b ? b : a;
+}
+
 static inline int compute_intersection_area(int ax1, int ay1, int ax2, int ay2, int bx1, int by1, int bx2, int by2)
 {
     return max(0, min(ax2, bx2) - max(ax1, bx1)) * max(0, min(ay2, by2) - max(ay1, by1));
@@ -1077,6 +1087,38 @@ done:
     SAFE_RELEASE(output);
     SAFE_RELEASE(output6);
     return ret;
+}
+
+bool mp_get_dxgi_output_desc2(struct mp_log *log, int bounds_left, int bounds_right, int bounds_top, int bounds_bottom, bool composition, ID3D11Device *device, IDXGISwapChain *swapchain, DXGI_OUTPUT_DESC1 *desc)
+{
+    RECT bounds = {
+        .left = bounds_left,
+        .right = bounds_right,
+        .top = bounds_top,
+        .bottom = bounds_bottom,
+    };
+
+    IDXGIDevice1 *dxgi_dev = NULL;
+    IDXGIAdapter1 *adapter = NULL;
+    bool success = false;
+    HRESULT hr;
+
+    hr = ID3D11Device_QueryInterface(device, &IID_IDXGIDevice1, (void**)&dxgi_dev);
+    if (FAILED(hr)) {
+        mp_fatal(log, "Failed to get DXGI device\n");
+        goto done;
+    }
+    hr = IDXGIDevice1_GetParent(dxgi_dev, &IID_IDXGIAdapter1, (void**)&adapter);
+    if (FAILED(hr)) {
+        mp_fatal(log, "Failed to get DXGI adapter\n");
+        goto done;
+    }
+
+    success = mp_get_dxgi_output_desc(log, composition, bounds, adapter, swapchain, desc);
+done:
+    SAFE_RELEASE(adapter);
+    SAFE_RELEASE(dxgi_dev);
+    return success;
 }
 
 void mp_d3d11_get_debug_interfaces(struct mp_log *log, IDXGIDebug **debug,
