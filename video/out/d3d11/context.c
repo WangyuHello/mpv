@@ -724,6 +724,7 @@ int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_RESIZE);
     MP_VERBOSE(ctx, "update size: %d %d\n", width, height);
+    vo_wakeup(ctx->vo);
     return 0;
 }
 
@@ -734,5 +735,6 @@ int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_SCALE_CHANGED);
     MP_VERBOSE(ctx, "update scale: %f %f\n", scaleX, scaleY);
+    vo_wakeup(ctx->vo);
     return 0;
 }
