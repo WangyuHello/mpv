@@ -19,6 +19,7 @@
 #include <d3d11.h>
 #include <dxgi1_6.h>
 #include <versionhelpers.h>
+#include <stdlib.h>
 
 #include "common/common.h"
 #include "common/msg.h"

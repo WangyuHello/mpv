@@ -15,6 +15,8 @@
  * License along with mpv.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdatomic.h>
+
 #include "common/msg.h"
 #include "options/m_config.h"
 #include "osdep/timer.h"
@@ -707,10 +709,12 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
 
 int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback) {
     d3d_init_callback = callback;
+    return 0;
 }
 
 int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback) {
     ra_ctx_callback = callback;
+    return 0;
 }
 
 int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
@@ -720,6 +724,7 @@ int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_RESIZE);
     MP_VERBOSE(ctx, "update size: %d %d\n", width, height);
+    return 0;
 }
 
 int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
@@ -729,4 +734,5 @@ int mpv_set_panel_scale(struct ra_ctx *ctx, float scaleX, float scaleY) {
     struct priv *p = ctx->priv;
     atomic_fetch_or(&p->composition_event_flags, VO_EVENT_SCALE_CHANGED);
     MP_VERBOSE(ctx, "update scale: %f %f\n", scaleX, scaleY);
+    return 0;
 }
