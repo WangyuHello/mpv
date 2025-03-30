@@ -522,6 +522,18 @@ struct vo {
     int dheight;
     float monitor_par;
 
+    // current panel state
+    int init_panel_width;
+    int init_panel_height;
+    float panel_scalex;
+    float panel_scaley;
+    float init_panel_scalex;
+    float init_panel_scaley;
+    int bounds_left;
+    int bounds_right;
+    int bounds_top;
+    int bounds_bottom;
+
     // current GPU context (--vo=gpu and --vo=gpu-next only)
     const char *context_name;
 };
