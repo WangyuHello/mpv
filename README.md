@@ -1,3 +1,7 @@
+# mpv with composition swapchain support!
+This mpv will create a composition swapchain instead of hwnd swapchain.
+The composition swapchain can be binded to WinUI3 SwapChainPanel
+
 ![mpv logo](https://raw.githubusercontent.com/mpv-player/mpv.io/master/source/images/mpv-logo-128.png)
 
 # mpv
