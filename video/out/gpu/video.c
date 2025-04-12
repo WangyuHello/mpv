@@ -3855,6 +3855,7 @@ static bool check_dumb_mode(struct gl_video *p)
 // Disable features that are not supported with the current OpenGL version.
 static void check_gl_features(struct gl_video *p)
 {
+    MP_VERBOSE(p, "check_gl_features start");
     struct ra *ra = p->ra;
     bool have_float_tex = !!ra_find_float16_format(ra, 1);
     bool have_mglsl = ra->glsl_version >= 130; // modern GLSL

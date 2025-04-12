@@ -1003,19 +1003,9 @@ done:
 // Compute the overlay area of two rectangles, A and B.
 // (ax1, ay1) = left-top coordinates of A; (ax2, ay2) = right-bottom coordinates of A
 // (bx1, by1) = left-top coordinates of B; (bx2, by2) = right-bottom coordinates of B
-static inline int max(int a, int b)
-{
-    return a > b ? a : b;
-}
-
-static inline int min(int a, int b)
-{
-    return a > b ? b : a;
-}
-
 static inline int compute_intersection_area(int ax1, int ay1, int ax2, int ay2, int bx1, int by1, int bx2, int by2)
 {
-    return max(0, min(ax2, bx2) - max(ax1, bx1)) * max(0, min(ay2, by2) - max(ay1, by1));
+    return MPMAX(0, MPMIN(ax2, bx2) - MPMAX(ax1, bx1)) * MPMAX(0, MPMIN(ay2, by2) - MPMAX(ay1, by1));
 }
 
 static bool query_best_output(struct mp_log *log, RECT bounds, IDXGIAdapter1 *adapter, IDXGIOutput **output) {

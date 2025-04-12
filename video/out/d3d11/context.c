@@ -170,6 +170,7 @@ static bool rescale(struct ra_ctx *ctx)
 {
     struct priv *p = ctx->priv;
     HRESULT hr;
+    bool success = false;
 
     if (p->backbuffer) {
         MP_ERR(ctx, "Attempt at scaling while a frame was in progress!\n");
@@ -182,7 +183,7 @@ static bool rescale(struct ra_ctx *ctx)
                                         (void**)&swapchain2);
     if (FAILED(hr)) {
         MP_FATAL(ctx, "Couldn't convert to swapchain2: %s\n", mp_HRESULT_to_str(hr));
-        return false;
+        goto done;
     }
 
     const DXGI_MATRIX_3X2_F mat = {
@@ -195,10 +196,14 @@ static bool rescale(struct ra_ctx *ctx)
     MP_VERBOSE(ctx, "rescale swapchain: %f, %f\n", ctx->vo->panel_scalex, ctx->vo->panel_scaley);
     if (FAILED(hr)) {
         MP_FATAL(ctx, "Couldn't rescale swapchain: %s\n", mp_HRESULT_to_str(hr));
-        return false;
+        goto done;
     }
 
-    return true;
+    success = true;
+
+done:
+    SAFE_RELEASE(swapchain2);
+    return success;
 }
 
 static bool d3d11_reconfig(struct ra_ctx *ctx)
@@ -588,16 +593,19 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
-    ra_ctx_callback(ctx, 
-        &ctx->vo->init_panel_width, 
-        &ctx->vo->init_panel_height, 
-        &ctx->vo->init_panel_scalex, 
-        &ctx->vo->init_panel_scaley, 
-        &ctx->vo->bounds_left,
-        &ctx->vo->bounds_top,
-        &ctx->vo->bounds_right,
-        &ctx->vo->bounds_bottom
-    );
+    if(d3d_init_callback) {
+        ra_ctx_callback(ctx, 
+            &ctx->vo->init_panel_width, 
+            &ctx->vo->init_panel_height, 
+            &ctx->vo->init_panel_scalex, 
+            &ctx->vo->init_panel_scaley, 
+            &ctx->vo->bounds_left,
+            &ctx->vo->bounds_top,
+            &ctx->vo->bounds_right,
+            &ctx->vo->bounds_bottom
+        );
+    }
+
     struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
     p->opts_cache = m_config_cache_alloc(ctx, ctx->global, &d3d11_conf);
     p->opts = p->opts_cache->opts;
@@ -639,7 +647,7 @@ static bool d3d11_init(struct ra_ctx *ctx)
         ctx->vo->dheight = ctx->vo->init_panel_height;
     }
 
-    if (ctx->opts.want_alpha)
+    if (!p->opts->composition && ctx->opts.want_alpha)
         vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
 
     UINT usage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
@@ -687,7 +695,10 @@ error:
 
 static void d3d11_update_render_opts(struct ra_ctx *ctx)
 {
-    vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+    struct priv *p = ctx->priv;
+    if (!p->opts->composition) {
+        vo_w32_set_transparency(ctx->vo, ctx->opts.want_alpha);
+    }
 }
 
 IDXGISwapChain *ra_d3d11_ctx_get_swapchain(struct ra_ctx *ra)
