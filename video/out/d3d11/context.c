@@ -681,9 +681,11 @@ static bool d3d11_init(struct ra_ctx *ctx)
         goto error;
 
     if (d3d_init_callback) {
-        ID3D11Device_AddRef(p->device);
-        IDXGISwapChain_AddRef(p->swapchain);
-        d3d_init_callback(p->device, p->swapchain);
+        // ID3D11Device_AddRef(p->device);
+        // IDXGISwapChain_AddRef(p->swapchain);
+        // do not need to add ref
+        // SwapChainPanelNative->SetSwapChain will add
+        d3d_init_callback(NULL, p->swapchain);
     }
 
     return true;
