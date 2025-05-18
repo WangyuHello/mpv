@@ -424,6 +424,7 @@ const struct m_sub_options mp_osd_render_sub_opts = {
         .osd_selected_color = {250, 189, 47, 255},
         .osd_selected_outline_color = {0, 0, 0, 255},
         .osd_ass_prune_delay = -1.0,
+        .osd_shaper = 1,
     },
     .change_flags = UPDATE_OSD,
 };
@@ -1071,7 +1072,7 @@ static const struct MPOpts mp_default_opts = {
         "zip", "rar", "7z", "cbz", "cbr", NULL
     },
     .playlist_exts = (char *[]){
-        "m3u", "m3u8", "pls", "edl", NULL
+        "cue", "edl", "m3u", "m3u8", "pls", NULL
     },
 
     .sub_auto_exts = (char *[]){
