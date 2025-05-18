@@ -41,6 +41,16 @@ struct d3d11_opts {
     int color_space;
     bool exclusive_fs;
     bool composition;
+    int init_panel_width;
+    int init_panel_height;
+    float panel_scalex;
+    float panel_scaley;
+    float init_panel_scalex;
+    float init_panel_scaley;
+    int bounds_left;
+    int bounds_right;
+    int bounds_top;
+    int bounds_bottom;
 };
 
 #define OPT_BASE_STRUCT struct d3d11_opts
@@ -88,6 +98,16 @@ const struct m_sub_options d3d11_conf = {
         },
         {"d3d11-exclusive-fs", OPT_BOOL(exclusive_fs)},
         {"d3d11-composition", OPT_BOOL(composition)},
+        {"d3d11-init-panel-width", OPT_INT(init_panel_width)},
+        {"d3d11-init-panel-height", OPT_INT(init_panel_height)},
+        {"d3d11-panel-scalex", OPT_FLOAT(panel_scalex)},
+        {"d3d11-panel-scaley", OPT_FLOAT(panel_scaley)},
+        {"d3d11-init-panel-scalex", OPT_FLOAT(init_panel_scalex)},
+        {"d3d11-init-panel-scaley", OPT_FLOAT(init_panel_scaley)},
+        {"d3d11-bounds-left", OPT_INT(bounds_left)},
+        {"d3d11-bounds-right", OPT_INT(bounds_right)},
+        {"d3d11-bounds-top", OPT_INT(bounds_top)},
+        {"d3d11-bounds-bottom", OPT_INT(bounds_bottom)},
         {0}
     },
     .defaults = &(const struct d3d11_opts) {
@@ -538,6 +558,28 @@ static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg
     } else {
         ret = VO_TRUE;
         *events |= atomic_fetch_and(&p->composition_event_flags, 0);
+
+        switch (request)
+        {
+        case VOCTRL_GET_SWAPCHAIN_ID: {
+            MP_INFO(ctx, "d3d11_control get swapchain %d\n",p->swapchain);
+            if (!p->swapchain) {
+                *(int64_t *)arg = 0;
+                ret = VO_TRUE;
+                break;
+            }
+            *(int64_t *)arg = (intptr_t)p->swapchain;
+            ret = VO_TRUE;
+            break;
+        }
+        case VOCTRL_GET_RACTX_ID: {
+            *(int64_t *)arg = (intptr_t)ctx;
+            ret = VO_TRUE;
+            break;
+        }
+        default:
+            break;
+        }
     }
 
     // if entering full screen, handle d3d11 after general windowing stuff
@@ -593,19 +635,6 @@ static const struct ra_swapchain_fns d3d11_swapchain = {
 
 static bool d3d11_init(struct ra_ctx *ctx)
 {
-    if(d3d_init_callback) {
-        ra_ctx_callback(ctx, 
-            &ctx->vo->init_panel_width, 
-            &ctx->vo->init_panel_height, 
-            &ctx->vo->init_panel_scalex, 
-            &ctx->vo->init_panel_scaley, 
-            &ctx->vo->bounds_left,
-            &ctx->vo->bounds_top,
-            &ctx->vo->bounds_right,
-            &ctx->vo->bounds_bottom
-        );
-    }
-
     struct priv *p = ctx->priv = talloc_zero(ctx, struct priv);
     p->opts_cache = m_config_cache_alloc(ctx, ctx->global, &d3d11_conf);
     p->opts = p->opts_cache->opts;
@@ -643,6 +672,15 @@ static bool d3d11_init(struct ra_ctx *ctx)
         if (!vo_w32_init(ctx->vo))
             goto error;
     } else {
+        ctx->vo->init_panel_width = p->opts->init_panel_width;
+        ctx->vo->init_panel_height = p->opts->init_panel_height;
+        ctx->vo->init_panel_scalex = p->opts->init_panel_scalex;
+        ctx->vo->init_panel_scaley = p->opts->init_panel_scaley;
+        ctx->vo->bounds_left = p->opts->bounds_left;
+        ctx->vo->bounds_top = p->opts->bounds_top;
+        ctx->vo->bounds_right = p->opts->bounds_right;
+        ctx->vo->bounds_bottom = p->opts->bounds_bottom;
+
         ctx->vo->dwidth = ctx->vo->init_panel_width;
         ctx->vo->dheight = ctx->vo->init_panel_height;
     }
@@ -679,14 +717,6 @@ static bool d3d11_init(struct ra_ctx *ctx)
     };
     if (!mp_d3d11_create_swapchain(p->device, ctx->log, &scopts, &p->swapchain))
         goto error;
-
-    if (d3d_init_callback) {
-        // ID3D11Device_AddRef(p->device);
-        // IDXGISwapChain_AddRef(p->swapchain);
-        // do not need to add ref
-        // SwapChainPanelNative->SetSwapChain will add
-        d3d_init_callback(NULL, p->swapchain);
-    }
 
     return true;
 
