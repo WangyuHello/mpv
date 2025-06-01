@@ -734,10 +734,6 @@ MPV_EXPORT void mpv_render_context_free(mpv_render_context *ctx);
 
 ///////////////////////////For WinUI3 Composition Begin//////////////////////////////
 typedef struct ra_ctx ra_ctx;
-typedef void (*mpv_d3d_init_fn)(void *d3d11Device, void *swapChain);
-typedef void (*mpv_ra_ctx_fn)(ra_ctx *ctx, int *width, int *height, float *scaleX, float *scaleY, int *bounds_left, int *bounds_top, int *bounds_right, int *bounds_bottom);
-MPV_EXPORT int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback);
-MPV_EXPORT int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback);
 MPV_EXPORT int mpv_set_panel_size(ra_ctx *ctx, int width, int height);
 MPV_EXPORT int mpv_set_panel_scale(ra_ctx *ctx, float scaleX, float scaleY);
 ///////////////////////////For WinUI3 Composition End//////////////////////////////
@@ -761,10 +757,6 @@ MPV_DEFINE_SYM_PTR(mpv_render_context_report_swap)
 MPV_DEFINE_SYM_PTR(mpv_render_context_free)
 #define mpv_render_context_free pfn_mpv_render_context_free
 ///////////////////////////For WinUI3 Composition Begin//////////////////////////////
-MPV_DEFINE_SYM_PTR(mpv_set_d3d_init_callback)
-#define mpv_set_d3d_init_callback pfn_mpv_set_d3d_init_callback
-MPV_DEFINE_SYM_PTR(mpv_set_ra_ctx_callback)
-#define mpv_set_ra_ctx_callback pfn_mpv_set_ra_ctx_callback
 MPV_DEFINE_SYM_PTR(mpv_set_panel_size)
 #define mpv_set_panel_size pfn_mpv_set_panel_size
 MPV_DEFINE_SYM_PTR(mpv_set_panel_scale)

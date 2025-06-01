@@ -143,9 +143,6 @@ struct priv {
     atomic_uint composition_event_flags;
 };
 
-static mpv_d3d_init_fn d3d_init_callback;
-static mpv_ra_ctx_fn ra_ctx_callback;
-
 static struct ra_tex *get_backbuffer(struct ra_ctx *ctx)
 {
     struct priv *p = ctx->priv;
@@ -765,16 +762,6 @@ const struct ra_ctx_fns ra_ctx_d3d11 = {
     .init               = d3d11_init,
     .uninit             = d3d11_uninit,
 };
-
-int mpv_set_d3d_init_callback(mpv_d3d_init_fn callback) {
-    d3d_init_callback = callback;
-    return 0;
-}
-
-int mpv_set_ra_ctx_callback(mpv_ra_ctx_fn callback) {
-    ra_ctx_callback = callback;
-    return 0;
-}
 
 int mpv_set_panel_size(struct ra_ctx *ctx, int width, int height) {
     ctx->vo->dwidth = width;
