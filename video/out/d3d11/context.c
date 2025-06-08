@@ -559,7 +559,6 @@ static int d3d11_control(struct ra_ctx *ctx, int *events, int request, void *arg
         switch (request)
         {
         case VOCTRL_GET_SWAPCHAIN_ID: {
-            MP_INFO(ctx, "d3d11_control get swapchain %d\n",p->swapchain);
             if (!p->swapchain) {
                 *(int64_t *)arg = 0;
                 ret = VO_TRUE;
